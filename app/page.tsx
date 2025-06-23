@@ -188,18 +188,45 @@ export default function Home() {
   }, [fetchPixelData]);
 
   const mintPixel = async (x: number, y: number) => {
-    if (!isConnected) return;
+    if (!isConnected || !address) return;
+    
+    const key = `${x}-${y}`;
+    
     try {
-      await writeContractAsync({
+      // Optimistic update - immediately show as minted
+      setPixelData(prev => ({
+        ...prev,
+        [key]: {
+          color: selectedColor,
+          owner: address,
+          isMinted: true,
+        }
+      }));
+  
+      const txHash = await writeContractAsync({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: PXNFT_ABI,
         functionName: "mint",
         args: [BigInt(x), BigInt(y), selectedColor],
       });
+  
+      console.log("Mint transaction submitted:", txHash);
+      
     } catch (error) {
       console.error("Error minting pixel:", error);
+      
+      // Revert optimistic update on error
+      setPixelData(prev => ({
+        ...prev,
+        [key]: {
+          color: '#ffffff',
+          owner: null,
+          isMinted: false,
+        }
+      }));
     }
   };
+  
 
   const updatePixel = async (x: number, y: number) => {
     if (!isConnected) return;
