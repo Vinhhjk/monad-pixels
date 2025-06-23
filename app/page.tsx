@@ -251,35 +251,41 @@ export default function Home() {
       {/* Main Canvas Area */}
       <div className="flex-1 flex items-center justify-center bg-gray-800 relative">
         {/* Top Bar */}
-        <div className="absolute top-0 left-0 right-0 bg-gray-900 bg-opacity-90 backdrop-blur-sm z-10 px-6 py-3 flex justify-between items-center border-b border-gray-700">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-white">🎨 Pixel NFT Canvas</h1>
-            <div className="text-sm text-gray-300">
+        <div className="absolute top-0 left-0 right-0 bg-gray-900 bg-opacity-90 backdrop-blur-sm z-10 px-3 sm:px-6 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-700 gap-3 sm:gap-0">
+          <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
+            <h1 className="text-lg sm:text-2xl font-bold text-white">🎨 Pixel NFT Canvas</h1>
+            <div className="text-xs sm:text-sm text-gray-300 hidden sm:block">
               100 pixels • {Object.values(pixelData).filter(p => p.isMinted).length} minted
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
             <button 
               onClick={fetchPixelData}
-              className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-2"
+              className="bg-gray-700 hover:bg-gray-600 text-white px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm transition-colors flex items-center gap-1 sm:gap-2"
               disabled={isLoading}
             >
               <span className={isLoading ? "animate-spin" : ""}>🔄</span>
-              {isLoading ? 'Loading...' : 'Refresh'}
+              <span className="hidden sm:inline">{isLoading ? 'Loading...' : 'Refresh'}</span>
             </button>
             <button 
               onClick={() => setShowSidebar(!showSidebar)}
-              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-sm transition-colors"
+              className="bg-blue-600 hover:bg-blue-500 text-white px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm transition-colors"
             >
-              {showSidebar ? '🎨 Hide Tools' : '🎨 Show Tools'}
+              <span className="sm:hidden">{showSidebar ? '🎨' : '🎨'}</span>
+              <span className="hidden sm:inline">{showSidebar ? '🎨 Hide Tools' : '🎨 Show Tools'}</span>
             </button>
             <ConnectButton />
           </div>
+          {/* Mobile stats */}
+          <div className="text-xs text-gray-300 sm:hidden w-full">
+            100 pixels • {Object.values(pixelData).filter(p => p.isMinted).length} minted
+          </div>
         </div>
 
+
         {/* Canvas */}
-        <div className="mt-16 mb-8">
-          {isLoading && (
+        <div className="mt-20 sm:mt-16 mb-8">
+        {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-75 z-20">
               <div className="text-center">
                 <div className="animate-spin text-4xl mb-4">⚡</div>
@@ -332,7 +338,16 @@ export default function Home() {
 
       {/* Sidebar */}
       {showSidebar && (
-        <div className="w-80 bg-gray-900 border-l border-gray-700 flex flex-col">
+      <div className="fixed sm:relative top-0 right-0 w-full sm:w-80 h-full bg-gray-900 border-l border-gray-700 flex flex-col z-30 sm:z-auto">          
+          <div className="sm:hidden p-4 border-b border-gray-700 flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Tools</h2>
+            <button 
+              onClick={() => setShowSidebar(false)}
+              className="text-gray-400 hover:text-white text-xl"
+            >
+              ✕
+            </button>
+          </div>
           {/* Color Palette */}
           <div className="p-6 border-b border-gray-700">
             <h3 className="text-lg font-semibold mb-4">🎨 Color Palette</h3>
