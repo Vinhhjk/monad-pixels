@@ -1,17 +1,22 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useWriteContract, usePublicClient, useWaitForTransactionReceipt } from "wagmi";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useWriteContract, usePublicClient, useWatchContractEvent, useWaitForTransactionReceipt } from "wagmi";
 import { useAppKitAccount } from '@reown/appkit/react';
 import ConnectButton from "@/components/ConnectButton";
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
-import type { Log } from "viem";
+import type { Abi, Log } from "viem";
+
 const CANVAS_WIDTH = 100; // Total canvas size (100x100 = 10,000 pixels)
 const CANVAS_HEIGHT = 100;
 const MIN_VIEWPORT_SIZE = 10; // Minimum zoom (most zoomed in)
-const MAX_VIEWPORT_SIZE =80; // Maximum zoom (most zoomed out)
+const MAX_VIEWPORT_SIZE =100; // Maximum zoom (most zoomed out)
 const PIXEL_SIZE = 8; // Base pixel size in pixels
+const CHUNK_SIZE = 5; // Load in 5x5 chunks for efficiency
+const CONTRACT_ADDRESS = "0x32c25287A2683fC9C834bA686d2f4dcb74Ba19aE";
 
-const CONTRACT_ADDRESS = "0x09D2AB8E374dA70754341E9a120022d8DDbCa91a";
+// Add request throttling
+const MAX_CONCURRENT_REQUESTS = 3; // Limit concurrent chunk loads
+const DEBOUNCE_DELAY = 300; // Debounce delay for viewport changes
 
 interface PixelData {
   color: string;
@@ -19,7 +24,15 @@ interface PixelData {
   isMinted: boolean;
 }
 
+interface TransferEventArgs {
+  from: string;
+  to: string;
+  tokenId: bigint;
+}
 
+interface ContractEventLog {
+  args?: unknown;
+}
 
 interface WindowWithFallback extends Window {
   clearPixelFallback?: () => void;
@@ -33,8 +46,6 @@ export default function Home() {
   const [pixelData, setPixelData] = useState<{ [key: string]: PixelData }>({});
   const [isLoading] = useState(false);  
   const [showSidebar, setShowSidebar] = useState(true);
-  const [loadedChunks, setLoadedChunks] = useState<Set<string>>(new Set());
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [viewportX, setViewportX] = useState(0); // Top-left corner of viewport
   const [viewportY, setViewportY] = useState(0);
   const [viewportSize, setViewportSize] = useState(MIN_VIEWPORT_SIZE); // Current zoom level
@@ -47,15 +58,12 @@ export default function Home() {
   const [showHexInput, setShowHexInput] = useState(false);
   const [positionX, setPositionX] = useState('');
   const [positionY, setPositionY] = useState('');
-
-  const [eventWatcher, setEventWatcher] = useState<(() => void) | null>(null);
+  const loadedChunksRef = useRef<Set<string>>(new Set());  
   // State to track pending transactions
-  const [loadingChunks, setLoadingChunks] = useState<Set<string>>(new Set());
   const [isLoadingChunks, setIsLoadingChunks] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
   const [pendingMints, setPendingMints] = useState<Set<string>>(new Set());
   const [pendingUpdates, setPendingUpdates] = useState<Set<string>>(new Set());
-  
   // Track transaction hashes and the pixel being processed
   const [pendingTxHash, setPendingTxHash] = useState<`0x${string}` | null>(null);
   const [pendingTxPixel, setPendingTxPixel] = useState<[number, number] | null>(null);
@@ -66,6 +74,11 @@ export default function Home() {
   const [isBatchMinting, setIsBatchMinting] = useState(false);
   const [highlightedPixel, setHighlightedPixel] = useState<[number, number] | null>(null);
   const [totalMinted, setTotalMinted] = useState(0);
+  // Debouncing for viewport changes
+  const viewportChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Request queue management
+  const activeRequestsRef = useRef<number>(0);
+  const requestQueueRef = useRef<Array<() => Promise<void>>>([]);
 
   const { address, isConnected } = useAppKitAccount();
   const { writeContractAsync } = useWriteContract();
@@ -73,29 +86,8 @@ export default function Home() {
   const [sidebarPosition, setSidebarPosition] = useState({ x: 0, y: 64 }); // Start at top-right, below header
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [sidebarDragStart, setSidebarDragStart] = useState({ x: 0, y: 0 });
-  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0 });
-
-
   useEffect(() => {
     setSidebarPosition({ x: window.innerWidth - 320, y: 64 });
-  }, []);
-  useEffect(() => {
-    const handleResize = () => {
-      const sidebarWidth = Math.min(320, window.innerWidth * 0.9);
-      const maxX = window.innerWidth - sidebarWidth;
-      const maxY = window.innerHeight - 200;
-      
-      setSidebarPosition(prev => ({
-        x: Math.max(0, Math.min(maxX, prev.x)), // Keep within bounds
-        y: Math.max(64, Math.min(maxY, prev.y)) // Keep within bounds
-      }));
-    };
-  
-    window.addEventListener('resize', handleResize);
-    
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
   }, []);
   const handleSidebarDragStart = (e: React.MouseEvent) => {
     setIsDraggingSidebar(true);
@@ -238,6 +230,25 @@ export default function Home() {
     return { x, y };
   }, []);
 
+  // Request queue processor
+  const processRequestQueue = useCallback(async () => {
+    if (activeRequestsRef.current >= MAX_CONCURRENT_REQUESTS || requestQueueRef.current.length === 0) {
+      return;
+    }
+
+    const request = requestQueueRef.current.shift();
+    if (request) {
+      activeRequestsRef.current++;
+      try {
+        await request();
+      } finally {
+        activeRequestsRef.current--;
+        // Process next request
+        setTimeout(processRequestQueue, 50); // Small delay between requests
+      }
+    }
+  }, []);
+
   // Handle successful transaction with fallback
   useEffect(() => {
     if (isTxSuccess && txReceipt && pendingTxHash && pendingTxPixel) {
@@ -319,22 +330,7 @@ export default function Home() {
       // Clear transaction type
       setPendingTxType(null);
     }
-  }, [isTxSuccess, txReceipt, pendingTxHash, pendingTxPixel, pendingTxType, publicClient, getTokenId, fetchTotalMinted]);
-  const memoizedPixelGrid = useMemo(() => {
-    // Ensure viewport doesn't exceed canvas bounds
-    const actualViewportX = Math.min(viewportX, CANVAS_WIDTH - viewportSize);
-    const actualViewportY = Math.min(viewportY, CANVAS_HEIGHT - viewportSize);
-    
-    return [...Array(viewportSize * viewportSize)].map((_, i) => {
-      const localX = i % viewportSize;
-      const localY = Math.floor(i / viewportSize);
-      const globalX = actualViewportX + localX;
-      const globalY = actualViewportY + localY;
-      
-      return { i, globalX, globalY };
-    });
-  }, [viewportSize, viewportX, viewportY]);
-  
+  }, [isTxSuccess, txReceipt, pendingTxHash, pendingTxPixel, pendingTxType, publicClient, getTokenId]);
 
   // Predefined color palette like r/place
   const colorPalette = [
@@ -362,363 +358,281 @@ export default function Home() {
       setShowHexInput(false);
     }
   };
+  const getChunkKey = useCallback((chunkX: number, chunkY: number) => `${chunkX}-${chunkY}`, []);
+
+  const getChunkCoords = useCallback((x: number, y: number) => ({
+    chunkX: Math.floor(x / CHUNK_SIZE),
+    chunkY: Math.floor(y / CHUNK_SIZE)
+  }), []);
+
+  const getRequiredChunks = useCallback((viewX: number, viewY: number, currentViewportSize: number) => {
+    const chunks = [];
+    const startChunkX = Math.floor(viewX / CHUNK_SIZE);
+    const startChunkY = Math.floor(viewY / CHUNK_SIZE);
+    const endChunkX = Math.floor((viewX + currentViewportSize) / CHUNK_SIZE);
+    const endChunkY = Math.floor((viewY + currentViewportSize) / CHUNK_SIZE);
+    
+    for (let chunkY = startChunkY; chunkY <= endChunkY; chunkY++) {
+      for (let chunkX = startChunkX; chunkX <= endChunkX; chunkX++) {
+        if (chunkX >= 0 && chunkY >= 0 && 
+            chunkX < Math.ceil(CANVAS_WIDTH / CHUNK_SIZE) && 
+            chunkY < Math.ceil(CANVAS_HEIGHT / CHUNK_SIZE)) {
+          chunks.push({ chunkX, chunkY });
+        }
+      }
+    }
+    return chunks;
+  }, []);
 
   // Listen for Transfer events (minting) - Fixed typing
-  useEffect(() => {
-    if (!eventWatchingEnabled || !isConnected || !publicClient) return;
-  
-    let isActive = true;
-    
-    const watchEvents = async () => {
-      try {
-        // Use a more specific event filter
-        const unwatch = publicClient.watchContractEvent({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: PXNFT_ABI,
-          eventName: 'Transfer',
-          args: {
-            from: '0x0000000000000000000000000000000000000000' // Only watch mint events
-          },
-          onLogs: (logs) => {
-            if (!isActive) return;
-            
-            console.log('Transfer event detected:', logs);
-            
-            if (window.clearPixelFallback) {
-              window.clearPixelFallback();
-              window.clearPixelFallback = undefined;
-            }
-            
-            logs.forEach(async (log: Log & { args?: { from: string; to: string; tokenId: bigint } }) => {
-              const { args } = log;
-              if (!args) return;
-              
-              const { from, to, tokenId } = args;
-              
-              // Only process mint events (from zero address)
-              if (from === '0x0000000000000000000000000000000000000000') {
-                const tokenIdNumber = Number(tokenId);
-                const { x, y } = getCoordinatesFromTokenId(tokenIdNumber);
-                const key = `${x}-${y}`;
-                
-                console.log(`Mint confirmed for pixel (${x}, ${y}), owner: ${to}`);
-                
-                // Update total minted count
-                setTotalMinted(prev => prev + 1);
-                
-                // Remove from pending mints
-                setPendingMints(prev => {
-                  const newSet = new Set(prev);
-                  newSet.delete(key);
-                  return newSet;
-                });
-                
-                // Fetch and update pixel data
-                try {
-                  const color = await publicClient.readContract({
-                    address: CONTRACT_ADDRESS as `0x${string}`,
-                    abi: PXNFT_ABI,
-                    functionName: 'getColor',
-                    args: [BigInt(x), BigInt(y)],
-                  }) as string;
-  
-                  setPixelData(prev => ({
-                    ...prev,
-                    [key]: {
-                      color: color || '#ffffff',
-                      owner: to,
-                      isMinted: true,
-                    }
-                  }));
-                } catch (error) {
-                  console.error('Error fetching color for newly minted pixel:', error);
-                }
-              }
-            });
-          },
-          onError: (error) => {
-            console.log('Event watching failed:', error);
-            setEventWatchingEnabled(false);
-          }
-        });
-        
-        setEventWatcher(unwatch);
-        
-      } catch (error) {
-        console.error('Failed to setup event watcher:', error);
-        setEventWatchingEnabled(false);
+  useWatchContractEvent({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: PXNFT_ABI,
+    eventName: 'Transfer',
+    enabled: eventWatchingEnabled && isConnected && !!publicClient,
+    onError: (error) => {
+      console.log('Event watching failed, disabling:', error);      
+      setEventWatchingEnabled(false);
+    },
+    onLogs: useCallback((logs: Log[]) => {
+      console.log('Transfer event detected:', logs);
+      
+      if (window.clearPixelFallback) {
+        window.clearPixelFallback();
+        window.clearPixelFallback = undefined;
       }
-    };
-  
-    watchEvents();
-  
-    return () => {
-      isActive = false;
-      if (eventWatcher) {
-        eventWatcher();
-        setEventWatcher(null);
-      }
-    };
-  }, [eventWatchingEnabled, isConnected, publicClient, getCoordinatesFromTokenId,eventWatcher]);
-  useEffect(() => {
-    if (!eventWatchingEnabled || !isConnected || !publicClient) return;
+      
+      logs.forEach(async (log: Log) => {
+        const logArgs = (log as ContractEventLog).args as TransferEventArgs | undefined;
+        if (!logArgs) return;
+        
+        const { from, to, tokenId } = logArgs;
+        
+        // Check if this is a mint (from zero address)
+        if (from === '0x0000000000000000000000000000000000000000') {
+          const tokenIdNumber = Number(tokenId);
+          const { x, y } = getCoordinatesFromTokenId(tokenIdNumber);
+          const key = `${x}-${y}`;
+          
+          console.log(`Mint confirmed for pixel (${x}, ${y}), owner: ${to}`);
+          // Update total minted count
+          setTotalMinted(prev => prev + 1);
+        
+          // Remove from pending mints when confirmed
+          setPendingMints(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(key);
+            console.log(`Removed ${key} from pending mints`);
+            return newSet;
+          });
+          
+          if (publicClient) {
+            try {
+              const color = await publicClient.readContract({
+                address: CONTRACT_ADDRESS as `0x${string}`,
+                abi: PXNFT_ABI,
+                functionName: 'getColor',
+                args: [BigInt(x), BigInt(y)],
+              }) as string;
 
-    let isActive = true;
-    
-    const watchColorEvents = async () => {
-      try {
-        const unwatch = publicClient.watchContractEvent({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: PXNFT_ABI,
-          eventName: 'ColorUpdated',
-          onLogs: (logs: (Log & { args?: { tokenId: bigint; x: bigint; y: bigint; color: string; owner: string } })[]) => {
-            if (!isActive) return;
-            
-            console.log('ColorUpdated event detected:', logs);
-            
-            logs.forEach((log: Log & { args?: { tokenId: bigint; x: bigint; y: bigint; color: string; owner: string } }) => {
-              const { args } = log;
-              if (!args) return;
-              
-              const { x, y, color, owner } = args; // Remove tokenId since it's not used
-              const pixelX = Number(x);
-              const pixelY = Number(y);
-              const key = `${pixelX}-${pixelY}`;
-              
-              console.log(`Color updated for pixel (${pixelX}, ${pixelY}), color: ${color}, owner: ${owner}`);
-              
-              // Update pixel data immediately
+              console.log(`Fetched color for newly minted pixel (${x}, ${y}): ${color}`);
+
+              setPixelData(prev => {
+                const updated = {
+                  ...prev,
+                  [key]: {
+                    color: color || '#ffffff',
+                    owner: to,
+                    isMinted: true,
+                  }
+                };
+                console.log(`Updated pixel data for ${key}:`, updated[key]);
+                return updated;
+              });
+            } catch (error) {
+              console.error('Error fetching color for newly minted pixel:', error);
+              // Fallback: update without fetching color
               setPixelData(prev => ({
                 ...prev,
                 [key]: {
-                  color: color,
-                  owner: owner,
+                  color: '#ffffff',
+                  owner: to,
                   isMinted: true,
                 }
               }));
-              
-              // Remove from pending states
-              setPendingMints(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(key);
-                return newSet;
-              });
-              
-              setPendingUpdates(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(key);
-                return newSet;
-              });
-            });
-            
-            // Update total minted count
-            fetchTotalMinted();
-          },
-          onError: (error) => {
-            console.log('ColorUpdated event watching failed:', error);
-          }
-        });
-        
-        return unwatch;
-        
-      } catch (error) {
-        console.error('Failed to setup ColorUpdated event watcher:', error);
-      }
-    };
-
-    const cleanup = watchColorEvents();
-    
-    return () => {
-      isActive = false;
-      cleanup?.then(unwatch => unwatch?.());
-    };
-  }, [eventWatchingEnabled, isConnected, publicClient, fetchTotalMinted]);
-
-
-  const loadVisiblePixels = useCallback(async () => {
-    if (!publicClient || isLoadingChunks) return;
-    
-    setIsLoadingChunks(true);
-    
-    try {
-      // Reduce buffer significantly for initial load, increase for subsequent loads
-      const buffer = isInitialLoad ? 5 : 15; // Much smaller initial buffer
-      const startX = Math.max(0, viewportX - buffer);
-      const startY = Math.max(0, viewportY - buffer);
-      const endX = Math.min(CANVAS_WIDTH - 1, viewportX + viewportSize + buffer);
-      const endY = Math.min(CANVAS_HEIGHT - 1, viewportY + viewportSize + buffer);
-      
-      const chunkSize = 5;
-      const chunksToLoad: Array<{x: number, y: number, endX: number, endY: number, key: string, priority: number}> = [];
-      
-      // Calculate chunks with priority (center chunks load first)
-      const centerX = viewportX + viewportSize / 2;
-      const centerY = viewportY + viewportSize / 2;
-      
-      for (let y = startY; y < endY; y += chunkSize) {
-        for (let x = startX; x < endX; x += chunkSize) {
-          const chunkEndX = Math.min(Math.floor(x + chunkSize - 1), Math.floor(endX));
-          const chunkEndY = Math.min(Math.floor(y + chunkSize - 1), Math.floor(endY));
-          const chunkKey = `${x}-${y}-${chunkEndX}-${chunkEndY}`;
-          
-          if (!loadedChunks.has(chunkKey) && !loadingChunks.has(chunkKey)) {
-            // Calculate distance from center for priority
-            const chunkCenterX = x + (chunkEndX - x) / 2;
-            const chunkCenterY = y + (chunkEndY - y) / 2;
-            const distance = Math.sqrt(
-              Math.pow(chunkCenterX - centerX, 2) + Math.pow(chunkCenterY - centerY, 2)
-            );
-            
-            chunksToLoad.push({ 
-              x: Math.floor(x), 
-              y: Math.floor(y), 
-              endX: chunkEndX, 
-              endY: chunkEndY, 
-              key: chunkKey,
-              priority: distance
-            });
+            }
           }
         }
-      }
-      
-      // Sort by priority (closest to center first)
-      chunksToLoad.sort((a, b) => a.priority - b.priority);
-      
-      // Limit concurrent loading for initial load
-      const maxConcurrentChunks = isInitialLoad ? 3 : 5;
-      const batchSize = Math.min(maxConcurrentChunks, chunksToLoad.length);
-      setLoadingProgress({ current: 0, total: chunksToLoad.length });
-      // Load in batches
-      for (let i = 0; i < chunksToLoad.length; i += batchSize) {
-        const batch = chunksToLoad.slice(i, i + batchSize);
+      });
+    }, [publicClient, getCoordinatesFromTokenId]),
+  });
+
+  const fetchChunkData = useCallback(async (chunkX: number, chunkY: number) => {
+    if (!publicClient) return;
+    
+    const chunkKey = getChunkKey(chunkX, chunkY);
+    if (loadedChunksRef.current.has(chunkKey)) return;
+    
+    // Mark as loaded immediately to prevent duplicate requests
+    loadedChunksRef.current.add(chunkKey);
+    
+    const ownerCalls = [];
+    const colorCalls = [];
+    
+    const startX = chunkX * CHUNK_SIZE;
+    const startY = chunkY * CHUNK_SIZE;
+    const endX = Math.min(startX + CHUNK_SIZE, CANVAS_WIDTH);
+    const endY = Math.min(startY + CHUNK_SIZE, CANVAS_HEIGHT);
+    
+    // Reduced chunk size means fewer calls per chunk
+    for (let y = startY; y < endY; y++) {
+      for (let x = startX; x < endX; x++) {
+        const tokenId = getTokenId(x, y);
         
-        // Load batch concurrently
-        await Promise.all(batch.map(async (chunk) => {
-          setLoadingChunks(prev => new Set(prev).add(chunk.key));
+        ownerCalls.push({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: PXNFT_ABI,
+          functionName: 'ownerOf',
+          args: [BigInt(tokenId)],
+        });
+        
+        colorCalls.push({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: PXNFT_ABI,
+          functionName: 'getColor',
+          args: [BigInt(x), BigInt(y)],
+        });
+      }
+    }
+  
+    try {
+      console.log(`Loading chunk ${chunkKey} with ${ownerCalls.length} pixels`);
+      
+      const [ownerResults, colorResults] = await Promise.all([
+        publicClient.multicall({ 
+          contracts: ownerCalls.map(call => ({
+            ...call,
+            abi: call.abi as Abi
+          }))
+        }),
+        publicClient.multicall({ 
+          contracts: colorCalls.map(call => ({
+            ...call,
+            abi: call.abi as Abi
+          }))
+        })
+      ]);
+  
+      const newPixelData: { [key: string]: PixelData } = {};
+      let index = 0;
+      
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const key = `${x}-${y}`;
+          const ownerResult = ownerResults[index];
+          const colorResult = colorResults[index];
           
-          try {
-            // console.log(`Loading chunk (${chunk.x},${chunk.y}) to (${chunk.endX},${chunk.endY})`);
-            
-            if (chunk.x >= CANVAS_WIDTH || chunk.y >= CANVAS_HEIGHT || 
-                chunk.endX >= CANVAS_WIDTH || chunk.endY >= CANVAS_HEIGHT) {
-              return;
-            }
-            
-            const result = await publicClient.readContract({
-              address: CONTRACT_ADDRESS as `0x${string}`,
-              abi: PXNFT_ABI,
-              functionName: 'getMintedPixelsInRange',
-              args: [BigInt(chunk.x), BigInt(chunk.y), BigInt(chunk.endX), BigInt(chunk.endY)],
-            });
-            
-            const [tokenIds, owners, colors] = result as [bigint[], string[], string[]];
-            
-            setPixelData(prev => {
-              const newData = { ...prev };
-              tokenIds.forEach((tokenId, index) => {
-                const tokenIdNum = Number(tokenId);
-                const pixelX = tokenIdNum % CANVAS_WIDTH;
-                const pixelY = Math.floor(tokenIdNum / CANVAS_WIDTH);
-                const key = `${pixelX}-${pixelY}`;
-                
-                newData[key] = {
-                  color: colors[index],
-                  owner: owners[index],
-                  isMinted: true,
-                };
-              });
-              return newData;
-            });
-            
-            setLoadedChunks(prev => new Set(prev).add(chunk.key));
-            
-          } catch (chunkError) {
-            console.error(`Error loading chunk (${chunk.x},${chunk.y}):`, chunkError);
-          } finally {
-            setLoadingChunks(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(chunk.key);
-              return newSet;
-            });
-              // ADD THIS:
-            setLoadingProgress(prev => ({ 
-              current: prev.current + 1, 
-              total: prev.total 
-            }));
+          if (ownerResult.status === 'success' && colorResult.status === 'success') {
+            newPixelData[key] = {
+              color: colorResult.result as string || '#ffffff',
+              owner: ownerResult.result as string,
+              isMinted: true,
+            };
+          } else {
+            newPixelData[key] = {
+              color: '#ffffff',
+              owner: null,
+              isMinted: false,
+            };
           }
-        }));
-        
-        // Add delay between batches, shorter for initial load
-        const delay = isInitialLoad ? 100 : 200;
-        await new Promise(resolve => setTimeout(resolve, delay));
+          index++;
+        }
       }
-      
+  
+      setPixelData(prev => ({ ...prev, ...newPixelData }));
+      console.log(`Loaded chunk ${chunkKey} successfully`);
     } catch (error) {
-      console.error('Error loading visible pixels:', error);
-    } finally {
-      setIsLoadingChunks(false);
-      setIsInitialLoad(false);
+      console.error(`Error fetching chunk ${chunkKey}:`, error);
+      // Remove from loaded chunks on error so it can be retried
+      loadedChunksRef.current.delete(chunkKey);
     }
-  }, [publicClient, viewportX, viewportY, viewportSize, isInitialLoad, isLoadingChunks,loadedChunks,loadingChunks]);
-  
-  
-  // Load pixels when viewport changes
-  useEffect(() => {
-    if (publicClient && !isLoadingChunks) {
-      const debounceTimer = setTimeout(() => {
-        loadVisiblePixels();
-      }, 300); // Debounce viewport changes
+  }, [publicClient, getChunkKey, getTokenId]);
+
+  const loadViewportChunks = useCallback(async (viewX: number, viewY: number, currentViewportSize: number) => {
+    const requiredChunks = getRequiredChunks(viewX, viewY, currentViewportSize);
+    
+    console.log(`Loading viewport (${viewX}, ${viewY}) - ${requiredChunks.length} chunks required`);
+    
+    // Add chunks to request queue instead of loading all at once
+    requiredChunks.forEach(({ chunkX, chunkY }) => {
+      const chunkKey = getChunkKey(chunkX, chunkY);
+      if (!loadedChunksRef.current.has(chunkKey)) {
+        requestQueueRef.current.push(() => fetchChunkData(chunkX, chunkY));
+      }
+    });
+    
+    // Start processing the queue
+    processRequestQueue();
+    
+    // Clean up chunks that are too far away (but less aggressively)
+    const cleanupDistance = 3; // Increased cleanup distance for zoom
+    const currentChunkX = Math.floor(viewX / CHUNK_SIZE);
+    const currentChunkY = Math.floor(viewY / CHUNK_SIZE);
+    
+    const newLoadedChunks = new Set<string>();
+    loadedChunksRef.current.forEach(chunkKey => {
+      const [chunkX, chunkY] = chunkKey.split('-').map(Number);
+      const distance = Math.max(
+        Math.abs(chunkX - currentChunkX),
+        Math.abs(chunkY - currentChunkY)
+      );
       
-      return () => clearTimeout(debounceTimer);
+      if (distance <= cleanupDistance) {
+        newLoadedChunks.add(chunkKey);
+      }
+    });
+    loadedChunksRef.current = newLoadedChunks;
+    
+    // Remove pixel data for unloaded chunks
+    setPixelData(prev => {
+      const newData = { ...prev };
+      Object.keys(newData).forEach(key => {
+        const [x, y] = key.split('-').map(Number);
+        const { chunkX, chunkY } = getChunkCoords(x, y);
+        const distance = Math.max(
+          Math.abs(chunkX - currentChunkX),
+          Math.abs(chunkY - currentChunkY)
+        );
+        
+        if (distance > cleanupDistance) {
+          delete newData[key];
+        }
+      });
+      return newData;
+    });
+  }, [fetchChunkData, getRequiredChunks, getChunkKey, getChunkCoords, processRequestQueue]);
+
+  // Debounced viewport loading with longer delay
+  const debouncedLoadViewportChunks = useCallback((viewX: number, viewY: number, currentViewportSize: number) => {
+    if (viewportChangeTimeoutRef.current) {
+      clearTimeout(viewportChangeTimeoutRef.current);
     }
-  }, [publicClient, viewportX, viewportY, viewportSize,isLoadingChunks,loadVisiblePixels]);
-  
-  // Initial load - just load current viewport
+    
+    viewportChangeTimeoutRef.current = setTimeout(() => {
+      loadViewportChunks(viewX, viewY, currentViewportSize);
+    }, DEBOUNCE_DELAY);
+  }, [loadViewportChunks]);
+
   useEffect(() => {
-    if (publicClient && isInitialLoad) {
-      loadVisiblePixels();
-    }
-  }, [publicClient, isInitialLoad, loadVisiblePixels]);
-  
-
-// Update your pixel checking functions:
-const isPixelMinted = (x: number, y: number) => {
-  const key = `${x}-${y}`;
-  return pixelData[key]?.isMinted || false;
-};
-
-const getPixelColor = (x: number, y: number) => {
-  const key = `${x}-${y}`;
-  const pixel = pixelData[key];
-  
-  // If pixel exists in our data, it's minted - use its color
-  if (pixel?.isMinted) {
-    return pixel.color;
-  }
-  
-  // Handle draw mode and selection preview for unminted pixels
-  if (isDrawMode && drawnPixels.has(key)) {
-    return drawnPixels.get(key) || selectedColor;
-  }
-  
-  if (!isDrawMode && selectedPixel?.[0] === x && selectedPixel?.[1] === y) {
-    return selectedColor;
-  }
-  
-  // Default: unminted pixels are white
-  return '#ffffff';
-};
-
-const getPixelOwner = (x: number, y: number) => {
-  const key = `${x}-${y}`;
-  return pixelData[key]?.owner || null;
-};
-  useEffect(() => {
-    if (publicClient) {
-      loadVisiblePixels();
-    }
-  }, [publicClient, loadVisiblePixels]);
-  
+    debouncedLoadViewportChunks(viewportX, viewportY, viewportSize);
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (viewportChangeTimeoutRef.current) {
+        clearTimeout(viewportChangeTimeoutRef.current);
+      }
+    };
+  }, [debouncedLoadViewportChunks, viewportX, viewportY, viewportSize]);
 
   // Enable event watching after initial load
   useEffect(() => {
@@ -732,60 +646,61 @@ const getPixelOwner = (x: number, y: number) => {
   }, [isConnected, publicClient]);
 
   // Zoom functions
-  const handleZoomIn = useCallback(() => {
+  const handleZoomIn = () => {
     const newSize = Math.max(MIN_VIEWPORT_SIZE, viewportSize - 5);
     if (newSize !== viewportSize) {
       setViewportSize(newSize);
+      // Adjust viewport position to keep center roughly the same
       const centerX = viewportX + viewportSize / 2;
       const centerY = viewportY + viewportSize / 2;
-      
-      const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - newSize, centerX - newSize / 2));
-      const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - newSize, centerY - newSize / 2));
-      
-      setViewportX(Math.floor(newViewportX)); // Ensure integer
-      setViewportY(Math.floor(newViewportY)); // Ensure integer
+      setViewportX(Math.max(0, Math.min(CANVAS_WIDTH - newSize, centerX - newSize / 2)));
+      setViewportY(Math.max(0, Math.min(CANVAS_HEIGHT - newSize, centerY - newSize / 2)));
     }
-  }, [viewportSize, viewportX, viewportY]);
-  
-  
-  const handleZoomOut = useCallback(() => {
+  };
+
+  const handleZoomOut = () => {
     const newSize = Math.min(MAX_VIEWPORT_SIZE, viewportSize + 5);
     if (newSize !== viewportSize) {
       setViewportSize(newSize);
       
+      // When zooming out, try to center the viewport to show maximum area
       const centerX = viewportX + viewportSize / 2;
       const centerY = viewportY + viewportSize / 2;
       
+      // Calculate new viewport position to center the view
       let newViewportX = centerX - newSize / 2;
       let newViewportY = centerY - newSize / 2;
       
-      // Ensure viewport stays within canvas bounds
+      // If we're at maximum zoom out, try to show as much as possible
+      if (newSize === MAX_VIEWPORT_SIZE) {
+        // Center the viewport to show maximum area
+        newViewportX = Math.max(0, (CANVAS_WIDTH - newSize) / 2);
+        newViewportY = Math.max(0, (CANVAS_HEIGHT - newSize) / 2);
+      }
+      
+      // Ensure viewport stays within bounds
       newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - newSize, newViewportX));
       newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - newSize, newViewportY));
       
-      setViewportX(Math.floor(newViewportX)); // Ensure integer
-      setViewportY(Math.floor(newViewportY)); // Ensure integer
+      setViewportX(newViewportX);
+      setViewportY(newViewportY);
     }
-  }, [viewportSize, viewportX, viewportY]);
-  
+  };
 
   // Handle mouse wheel for zooming
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    
-    // More sensitive zoom detection
-    if (e.deltaY < -10) { // Scroll up = zoom in
+    if (e.deltaY < 0) {
       handleZoomIn();
-    } else if (e.deltaY > 10) { // Scroll down = zoom out
+    } else {
       handleZoomOut();
     }
-    
     if (!hasInteracted) {
       setHasInteracted(true);
       setTimeout(() => setShowInstructions(false), 1000);
     }
-  }, [hasInteracted, handleZoomIn, handleZoomOut]);
+  }, [viewportSize, viewportX, viewportY, hasInteracted]);
+
   // Mouse handlers with reduced sensitivity
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -802,16 +717,17 @@ const getPixelOwner = (x: number, y: number) => {
     const deltaX = e.clientX - lastMousePos.x;
     const deltaY = e.clientY - lastMousePos.y;
     
-    const movementThreshold = PIXEL_SIZE * 2;
+    // Increase threshold for movement to reduce viewport changes
+    const movementThreshold = PIXEL_SIZE * 2; // Require more movement before updating
     
     if (Math.abs(deltaX) < movementThreshold && Math.abs(deltaY) < movementThreshold) {
       return;
     }
     
     const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - viewportSize, 
-      Math.floor(viewportX - deltaX / PIXEL_SIZE))); // Add Math.floor
+      viewportX - Math.floor(deltaX / PIXEL_SIZE)));
     const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - viewportSize, 
-      Math.floor(viewportY - deltaY / PIXEL_SIZE))); // Add Math.floor
+      viewportY - Math.floor(deltaY / PIXEL_SIZE)));
     
     if (newViewportX !== viewportX || newViewportY !== viewportY) {
       setViewportX(newViewportX);
@@ -820,7 +736,6 @@ const getPixelOwner = (x: number, y: number) => {
     
     setLastMousePos({ x: e.clientX, y: e.clientY });
   };
-  
 
   const handleMouseUp = () => {
     setIsDragging(false);
@@ -1049,6 +964,40 @@ const handleTouchEnd = () => {
     }
   };
   
+// REPLACE your getPixelColor function with this:
+const getPixelColor = (x: number, y: number) => {
+  const key = `${x}-${y}`;
+  const pixel = pixelData[key];
+  
+  // In draw mode, handle drawn pixels specially
+  if (isDrawMode && drawnPixels.has(key)) {
+    // If pixel is already minted, keep its original color (user can't mint it anyway)
+    if (pixel?.isMinted) {
+      return pixel.color;
+    }
+    // For unminted drawn pixels, show the color it was selected with
+    return drawnPixels.get(key) || selectedColor;
+  }
+  
+  // Regular selection mode - only show preview for unminted pixels
+  if (!isDrawMode && selectedPixel?.[0] === x && selectedPixel?.[1] === y && !pixel?.isMinted) {
+    return selectedColor;
+  }
+  
+  // Default: show actual pixel color or white for unminted
+  return pixel?.isMinted ? pixel.color : '#ffffff';
+};
+
+
+  const isPixelMinted = (x: number, y: number) => {
+    const key = `${x}-${y}`;
+    return pixelData[key]?.isMinted || false;
+  };
+
+  const getPixelOwner = (x: number, y: number) => {
+    const key = `${x}-${y}`;
+    return pixelData[key]?.owner;
+  };
 
   const canUpdatePixel = (x: number, y: number) => {
     if (!isConnected || !address) return false;
@@ -1107,7 +1056,7 @@ const handleTouchEnd = () => {
       {/* Full Screen Canvas Background */}
       <div className="w-full h-full bg-gray-800 relative">
                 {/* Header - Fixed at top with high z-index */}
-        <div className="fixed top-0 left-0 right-0 z-40 px-2 sm:px-4 py-2 sm:py-3">
+        <div className="fixed top-0 left-0 right-0 bg-gray-900 bg-opacity-95 z-40 px-2 sm:px-4 py-2 sm:py-3">
           <div className="flex justify-between items-center gap-1 sm:gap-2">
             {/* Left side  */}
             <div className="flex items-center gap-2 sm:gap-4">
@@ -1227,8 +1176,11 @@ const handleTouchEnd = () => {
               {/* Refresh Button */}
               <button 
                 onClick={() => {
+                  loadedChunksRef.current.clear();
+                  requestQueueRef.current = [];
                   setIsLoadingChunks(true);
-                  loadVisiblePixels();
+                  debouncedLoadViewportChunks(viewportX, viewportY, viewportSize);
+                  setTimeout(() => setIsLoadingChunks(false), 1000);
                 }}
                 className="bg-gray-700 hover:bg-gray-600 text-white px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm transition-colors"
                 disabled={isLoadingChunks}
@@ -1272,69 +1224,45 @@ const handleTouchEnd = () => {
           onTouchEnd={handleTouchEnd}
         >
           {/* Loading overlay */}
-          {isLoadingChunks && isInitialLoad && (
+          {isLoadingChunks  && (
             <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-20">
               <div className="text-center">
                 <div className="animate-spin text-4xl mb-4">⚡</div>
-                <p className="text-xl text-gray-700">Loading canvas...</p>
-
+                <p className="text-xl text-gray-700">Loading pixel data...</p>
               </div>
             </div>
           )}
-{/* Chunk loading progress indicator */}
-{isLoadingChunks && !isInitialLoad && loadingProgress.total > 0 && (
-  <div className="absolute top-20 right-4 bg-black bg-opacity-80 text-white text-xs px-4 py-3 rounded-lg z-10 min-w-[200px]">
-    <div className="flex items-center gap-2 mb-2">
-      <span className="animate-spin">⚡</span>
-      <span>Loading...</span>
-    </div>
-    <div className="w-full bg-gray-700 rounded-full h-2 mb-1">
-      <div 
-        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-        style={{ 
-          width: `${(loadingProgress.current / loadingProgress.total) * 100}%` 
-        }}
-      ></div>
-    </div>
-    <div className="text-center text-gray-300">
-
-      ({Math.round((loadingProgress.current / loadingProgress.total) * 100)}%)
-    </div>
-  </div>
-)}
 
           {/* Direct pixel grid - fills entire screen */}
           <div 
-  className="absolute inset-0 flex items-center justify-center"
->
-<div 
-  className="absolute inset-0 grid"
-  style={{ 
-    gridTemplateColumns: `repeat(${viewportSize}, 1fr)`,
-    gridTemplateRows: `repeat(${viewportSize}, 1fr)`,
-    gap: '1px',
-    padding: '1px',
-    width: '100vw',
-    height: '100vh',
-    minWidth: '100vw', // Ensure minimum full width
-    minHeight: '100vh', // Ensure minimum full height
-  }}
->
-
-          {memoizedPixelGrid.map(({ i, globalX, globalY }) => {
-            // Skip if outside canvas bounds
-            if (globalX >= CANVAS_WIDTH || globalY >= CANVAS_HEIGHT) {
-              return (
-                <div key={i} className="bg-gray-300" />
-              );
-            }
+            className="absolute inset-0 grid"
+            style={{ 
+              gridTemplateColumns: `repeat(${viewportSize}, 1fr)`,
+              gridTemplateRows: `repeat(${viewportSize}, 1fr)`,
+              gap: '1px',
+              padding: '1px',
+              aspectRatio: '1 / 1',
+            }}
+          >
+            {[...Array(viewportSize * viewportSize)].map((_, i) => {
+              const localX = i % viewportSize;
+              const localY = Math.floor(i / viewportSize);
+              const globalX = viewportX + localX;
+              const globalY = viewportY + localY;
               
-            const isSelected = selectedPixel?.[0] === globalX && selectedPixel?.[1] === globalY;
-            const isHighlighted = highlightedPixel?.[0] === globalX && highlightedPixel?.[1] === globalY;
-            const isMinted = isPixelMinted(globalX, globalY);
-            const isPending = isPixelPending(globalX, globalY);
-            const pixelColor = getPixelColor(globalX, globalY);
-            const isDrawn = isDrawMode && drawnPixels.has(`${globalX}-${globalY}`);
+              // Skip if outside canvas bounds
+              if (globalX >= CANVAS_WIDTH || globalY >= CANVAS_HEIGHT) {
+                return (
+                  <div key={i} className="bg-gray-300" />
+                );
+              }
+              
+              const isSelected = selectedPixel?.[0] === globalX && selectedPixel?.[1] === globalY;
+              const isHighlighted = highlightedPixel?.[0] === globalX && highlightedPixel?.[1] === globalY;
+              const isMinted = isPixelMinted(globalX, globalY);
+              const isPending = isPixelPending(globalX, globalY);
+              const pixelColor = getPixelColor(globalX, globalY);
+              const isDrawn = isDrawMode && drawnPixels.has(`${globalX}-${globalY}`);
                 // Determine border style based on state
               let borderStyle = 'none';
               if (isHighlighted) {
@@ -1373,14 +1301,18 @@ const handleTouchEnd = () => {
               );
             })}
           </div>
-          </div>
+          
           {/* Viewport indicator */}
           <div className="absolute bottom-4 right-4 bg-black bg-opacity-70 text-white text-sm px-3 py-2 rounded-lg z-10">
-            ({viewportX}, {viewportY}) | {viewportSize}×{viewportSize} | {Object.keys(pixelData).length} minted
-            {isLoadingChunks && !isInitialLoad && (
-              <div className="text-xs text-blue-400 mt-1">Loading...</div>
-            )}
+            ({viewportX}, {viewportY}) | {viewportSize}×{viewportSize} | {loadedChunksRef.current.size} chunks
           </div>
+          
+          {/* Request queue indicator */}
+          {requestQueueRef.current.length > 0 && (
+            <div className="absolute bottom-4 left-4 bg-blue-600 bg-opacity-90 text-white text-sm px-3 py-2 rounded-lg z-10">
+              Loading... ({requestQueueRef.current.length} chunks queued)
+            </div>
+          )}
 
           {/* Zoom instructions */}
           {showInstructions && (
@@ -1613,27 +1545,22 @@ const handleTouchEnd = () => {
                         <button 
                           className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
                           onClick={() => {
-                            // Check if we're in draw mode with drawn pixels
-                            if (isDrawMode && drawnPixels.size > 0) {
-                              batchMintPixels();
-                            } else {
-                              console.log(`Attempting to mint pixel (${selectedPixel[0]}, ${selectedPixel[1]})`);
-                              mintPixel(...selectedPixel);
-                            }
+                            console.log(`Attempting to mint pixel (${selectedPixel[0]}, ${selectedPixel[1]})`);
+                            mintPixel(...selectedPixel);
                           }}
-                          disabled={isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting || isBatchMinting}
-                          >
-                            {isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting  ? (
-                              <>
-                                <span className="animate-spin">⏳</span>
-                                Minting...
-                              </>
-                            ) : (
-                              <>
-                                <span>⚡</span>
-                                {isDrawMode && drawnPixels.size > 0 ? `Mint ${drawnPixels.size} Pixels` : 'Mint Pixel'}
-                              </>
-                            )}
+                          disabled={isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting}
+                        >
+                          {isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting  ? (
+                            <>
+                              <span className="animate-spin">⏳</span>
+                              Minting...
+                            </>
+                          ) : (
+                            <>
+                              <span>⚡</span>
+                              Mint Pixel
+                            </>
+                          )}
                         </button>
                       ) : canUpdatePixel(selectedPixel[0], selectedPixel[1]) ? (
                         <button 
@@ -1693,15 +1620,17 @@ const handleTouchEnd = () => {
               </div>
               
               {/* Performance info */}
-            <div className="pt-4 border-t border-gray-700 mt-4">
-              <h4 className="text-white font-medium mb-2">Performance Info</h4>
-              <div className="space-y-1 text-xs text-gray-500">
-                <p>Canvas: {CANVAS_WIDTH}×{CANVAS_HEIGHT} pixels</p>
-                <p>Viewport: {viewportSize}×{viewportSize} pixels</p>
-                <p>Minted pixels: {Object.keys(pixelData).length}</p>
-                <p>Total possible: {CANVAS_WIDTH * CANVAS_HEIGHT}</p>
+              <div className="pt-4 border-t border-gray-700 mt-4">
+                <h4 className="text-white font-medium mb-2">Performance Info</h4>
+                <div className="space-y-1 text-xs text-gray-500">
+                  <p>Canvas: {CANVAS_WIDTH}×{CANVAS_HEIGHT} pixels</p>
+                  <p>Viewport: {viewportSize}×{viewportSize} pixels</p>
+                  <p>Chunk size: {CHUNK_SIZE}×{CHUNK_SIZE} pixels</p>
+                  <p>Active requests: {activeRequestsRef.current}/{MAX_CONCURRENT_REQUESTS}</p>
+                  <p>Queue: {requestQueueRef.current.length} pending</p>
+                  <p>Loaded chunks: {loadedChunksRef.current.size}</p>
+                </div>
               </div>
-            </div>
             </div>
           </div>
         </div>

@@ -8,7 +8,7 @@ import { monadTestnet } from '@reown/appkit/networks';
 export const wallet_wagmiAdapter = new WagmiAdapter({
     projectId: process.env.NEXT_PUBLIC_PROJECT_ID!,
     networks: [monadTestnet],
-  
+
   });
   
   // createAppKit initialization

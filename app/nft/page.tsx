@@ -1,9 +1,10 @@
 'use client';
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from 'next/navigation';
 import { usePublicClient } from "wagmi";
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
 
-const CONTRACT_ADDRESS = "0xEE42825Ab7E79cf2a10A69319C45850131478CD8";
+const CONTRACT_ADDRESS = "0x09D2AB8E374dA70754341E9a120022d8DDbCa91a";
 
 interface NFTMetadata {
   name: string;
@@ -21,7 +22,45 @@ export default function NFTViewer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const publicClient = usePublicClient();
+  const searchParams = useSearchParams();
 
+  useEffect(() => {
+    const tokenIdFromUrl = searchParams.get('tokenId');
+    if (tokenIdFromUrl && publicClient) {
+      setTokenId(tokenIdFromUrl);
+      
+      // Auto-fetch the NFT metadata immediately
+      const autoFetch = async () => {
+        setLoading(true);
+        setError(null);
+        setMetadata(null);
+  
+        try {
+          const tokenURI = await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: PXNFT_ABI,
+            functionName: 'tokenURI',
+            args: [BigInt(tokenIdFromUrl)],
+          }) as string;
+  
+          console.log('Raw tokenURI:', tokenURI);
+  
+          // Decode the base64 JSON metadata
+          const decodedMetadata = decodeBase64JSON(tokenURI);
+          console.log('Decoded metadata:', decodedMetadata);
+  
+          setMetadata(decodedMetadata);
+        } catch (err) {
+          console.error('Error fetching NFT metadata:', err);
+          setError('Failed to fetch NFT metadata. Token may not exist.');
+        } finally {
+          setLoading(false);
+        }
+      };
+  
+      autoFetch();
+    }
+  }, [searchParams, publicClient]);
   const decodeBase64JSON = (base64String: string): NFTMetadata => {
     // Remove the data:application/json;base64, prefix
     const base64Data = base64String.replace('data:application/json;base64,', '');
@@ -86,7 +125,7 @@ export default function NFTViewer() {
               id="tokenId"
               type="number"
               min="0"
-              max="99"
+              max="10000"
               value={tokenId}
               onChange={(e) => setTokenId(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -215,8 +254,8 @@ export default function NFTViewer() {
         <ul className="text-sm text-blue-800 space-y-1">
           <li>• Enter a token ID to view the corresponding pixel NFT</li>
           <li>• The image is generated as an SVG and encoded in base64</li>
-          <li>• Each pixel corresponds to coordinates on a 10x10 grid</li>
-          <li>• Token ID formula: tokenId = y * 10 + x</li>
+          <li>• Each pixel corresponds to coordinates on a 100x100 grid</li>
+          <li>• Token ID formula: tokenId = y * 100 + x</li>
         </ul>
       </div>
     </div>
