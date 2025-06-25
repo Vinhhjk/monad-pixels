@@ -11,7 +11,7 @@ const MIN_VIEWPORT_SIZE = 10; // Minimum zoom (most zoomed in)
 const MAX_VIEWPORT_SIZE =80; // Maximum zoom (most zoomed out)
 const PIXEL_SIZE = 8; // Base pixel size in pixels
 
-const CONTRACT_ADDRESS = "0x98ddbc2f643Ca4544C63258DCC40C70A513462B1";
+const CONTRACT_ADDRESS = "0x10b5A30243396952545bF79501876FfBAee7ED49";
 
 interface PixelData {
   color: string;
@@ -1778,4 +1778,3 @@ const handleTouchMove = (e: React.TouchEvent) => {
     </div>
   );
 }
-

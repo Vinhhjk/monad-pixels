@@ -1,10 +1,12 @@
 'use client';
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import { useSearchParams } from 'next/navigation';
 import { usePublicClient } from "wagmi";
+import Link from 'next/link';
+import Image from 'next/image';
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
-
-const CONTRACT_ADDRESS = "0x98ddbc2f643Ca4544C63258DCC40C70A513462B1";
+import type { Abi } from "viem";
+const CONTRACT_ADDRESS = "0x10b5A30243396952545bF79501876FfBAee7ED49";
 
 interface NFTMetadata {
   name: string;
@@ -15,6 +17,12 @@ interface NFTMetadata {
     value: string | number;
   }>;
 }
+interface ReadContractWithGas {
+  address: `0x${string}`;
+  abi: Abi;
+  functionName: string;
+  gas?: bigint;
+}
 
 // Separate component that uses useSearchParams
 function NFTViewerContent() {
@@ -22,6 +30,9 @@ function NFTViewerContent() {
   const [metadata, setMetadata] = useState<NFTMetadata | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collectionAvatar, setCollectionAvatar] = useState<string>('');
+  const [isLoadingCollection, setIsLoadingCollection] = useState(false);
+  const [showLargeCanvas, setShowLargeCanvas] = useState(false);
   const publicClient = usePublicClient();
   const searchParams = useSearchParams();
 
@@ -113,6 +124,66 @@ function NFTViewerContent() {
     return { x, y };
   };
 
+  const fetchCollectionAvatar = useCallback(async () => {
+    if (!publicClient) return;
+    
+    setIsLoadingCollection(true);
+    try {
+      try {
+        const contractCall: ReadContractWithGas = {
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: PXNFT_ABI as Abi,
+          functionName: 'contractURI',
+          gas: BigInt(100000000),
+        };
+  
+        const contractURIResult = await publicClient.readContract(contractCall as Parameters<typeof publicClient.readContract>[0]) as string;        
+        console.log('Contract URI result:', contractURIResult);
+  
+        // Decode the base64 JSON metadata
+        const contractMetadata = decodeBase64JSON(contractURIResult);
+        console.log('Contract metadata:', contractMetadata);
+  
+        if (contractMetadata.image) {
+          setCollectionAvatar(contractMetadata.image);
+          return;
+        }
+      } catch (contractURIError) {
+        console.log('contractURI failed', contractURIError);
+      }
+  
+      // Fallback - create a simple placeholder
+      console.log('contractURI failed, using placeholder');
+      setCollectionAvatar('data:image/svg+xml;base64,' + btoa(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+          <rect width="100" height="100" fill="#f0f0f0"/>
+          <text x="50" y="50" text-anchor="middle" font-family="Arial" font-size="8" fill="#666">Canvas</text>
+          <text x="50" y="60" text-anchor="middle" font-family="Arial" font-size="6" fill="#666">Loading...</text>
+        </svg>
+      `));
+  
+    } catch (error) {
+      console.error('Error fetching collection avatar:', error);
+      // Create error placeholder
+      setCollectionAvatar('data:image/svg+xml;base64,' + btoa(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+          <rect width="100" height="100" fill="#ffebee"/>
+          <text x="50" y="50" text-anchor="middle" font-family="Arial" font-size="8" fill="#c62828">Error</text>
+          <text x="50" y="60" text-anchor="middle" font-family="Arial" font-size="6" fill="#c62828">Load Failed</text>
+        </svg>
+      `));
+    } finally {
+      setIsLoadingCollection(false);
+    }
+  }, [publicClient]);
+
+  // Add this useEffect after your existing useEffect
+  useEffect(() => {
+    if (publicClient) {
+      fetchCollectionAvatar();
+    }
+  }, [publicClient, fetchCollectionAvatar]);
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">NFT Viewer</h1>
@@ -172,10 +243,11 @@ function NFTViewerContent() {
               <h2 className="text-xl font-semibold text-gray-900">NFT Image</h2>
               <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                 <div className="flex justify-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src={metadata.image}
                     alt={metadata.name}
+                    width={192}
+                    height={192}
                     className="w-48 h-48 border border-gray-300 rounded-lg shadow-sm"
                     style={{ imageRendering: 'pixelated' }}
                   />
@@ -252,15 +324,120 @@ function NFTViewerContent() {
       )}
 
       {/* Help Section */}
-      <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <h3 className="font-medium text-blue-900 mb-2">How to use:</h3>
-        <ul className="text-sm text-blue-800 space-y-1">
-          <li>• Enter a token ID to view the corresponding pixel NFT</li>
-          <li>• The image is generated as an SVG and encoded in base64</li>
-          <li>• Each pixel corresponds to coordinates on a 100x100 grid</li>
-          <li>• Token ID formula: tokenId = y * 100 + x</li>
-        </ul>
+      <div className="mt-8 space-y-6">
+        {/* Collection Avatar Section */}
+        <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+          <h3 className="font-medium text-purple-900 mb-3 flex items-center gap-2">
+            🎨 Complete Collection&apos;s Image
+          </h3>
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0">
+              {isLoadingCollection ? (
+                <div className="w-24 h-24 bg-gray-200 rounded-lg flex items-center justify-center">
+                  <div className="animate-spin text-lg">⚡</div>
+                </div>
+              ) : collectionAvatar ? (
+                <Image
+                  src={collectionAvatar}
+                  alt="Complete Canvas"
+                  width={96}
+                  height={96}
+                  className="w-24 h-24 border border-gray-300 rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                  style={{ imageRendering: 'pixelated' }}
+                  onClick={() => setShowLargeCanvas(true)}
+                />
+              ) : (
+                <div className="w-24 h-24 bg-gray-200 rounded-lg flex items-center justify-center">
+                  <span className="text-gray-500 text-xs">No canvas</span>
+                </div>
+              )}
+            </div>
+            <div className="flex-1 text-sm text-purple-800">
+              <p className="mb-2">A collaborative 100×100 canvas where each pixel is an individual NFT.</p>
+              <div className="flex gap-2 flex-wrap">
+                <Link
+                  href="/"
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded text-xs transition-colors"
+                >
+                  🎨 View Full Canvas
+                </Link>
+                <button
+                  onClick={fetchCollectionAvatar}
+                  className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs transition-colors"
+                  disabled={isLoadingCollection}
+                >
+                  🔄 Refresh
+                </button>
+                {collectionAvatar && (
+                  <button
+                    onClick={() => setShowLargeCanvas(true)}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-xs transition-colors"
+                  >
+                    🔍 View Collection Image
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Help Section */}
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h3 className="font-medium text-blue-900 mb-2">How to use:</h3>
+          <ul className="text-sm text-blue-800 space-y-1">
+            <li>• Enter a token ID to view the corresponding pixel NFT</li>
+            <li>• The image is generated as an SVG and encoded in base64</li>
+            <li>• Each pixel corresponds to coordinates on a 100x100 grid</li>
+            <li>• Token ID formula: tokenId = y * 100 + x</li>
+          </ul>
+        </div>
       </div>
+
+      {/* Large Canvas Modal */}
+      {showLargeCanvas && collectionAvatar && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-4xl max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-900">Complete Canvas Collection</h3>
+              <button
+                onClick={() => setShowLargeCanvas(false)}
+                className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex justify-center">
+              <Image
+                src={collectionAvatar}
+                alt="Complete Canvas - Large View"
+                width={600}
+                height={600}
+                className="max-w-full h-auto border border-gray-300 rounded-lg"
+                style={{ imageRendering: 'pixelated' }}
+              />
+            </div>
+            <div className="mt-4 text-center">
+              <p className="text-sm text-gray-600 mb-3">
+                Complete collaborative canvas showing all minted pixels
+              </p>
+              <div className="flex justify-center gap-2">
+                <button
+                  onClick={() => setShowLargeCanvas(false)}
+                  className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded text-sm transition-colors"
+                >
+                  Close
+                </button>
+                <Link
+                  href="/"
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded text-sm transition-colors"
+                >
+                  🎨 Go to Canvas
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -286,3 +463,4 @@ export default function NFTViewer() {
     </Suspense>
   );
 }
+
