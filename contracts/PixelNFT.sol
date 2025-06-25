@@ -6,18 +6,18 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract TestPixelNFT1 is ERC721, Ownable {
+contract TestPixelNFT20 is ERC721, Ownable {
     uint256 public constant WIDTH = 100;
     uint256 public constant HEIGHT = 100;
     mapping(uint256 => string) public pixelColors;
     uint256 private _totalMinted = 0;
     
     // Add default color constant
-    string public constant DEFAULT_COLOR = "#ffffff";
+    string public constant DEFAULT_COLOR = "#ff0000";
     
     // Collection info
     string public collectionDescription = "A collaborative pixel art canvas where each pixel is an NFT. Create art together on-chain!";
-    string public externalUrl = "https://your-domain.com";
+    string public externalUrl = "https://pixels.monadfresn.fun";
 
     // Add custom event for color updates
     event ColorUpdated(uint256 indexed tokenId, uint256 indexed x, uint256 indexed y, string color, address owner);
@@ -174,7 +174,6 @@ contract TestPixelNFT1 is ERC721, Ownable {
         return _ownerOf(tokenId) != address(0);
     }
 
-    // OPTIMIZED: Generate collection avatar with gas optimization
     function generateCollectionAvatar() public view returns (string memory) {
         // Create a more compact SVG for gas efficiency
         string memory svg = string(abi.encodePacked(
@@ -213,7 +212,7 @@ contract TestPixelNFT1 is ERC721, Ownable {
         return svg;
     }
 
-    // THIS IS THE KEY FUNCTION - contractURI() for marketplace recognition
+    //KEY FUNCTION - contractURI() for marketplace recognition
     function contractURI() public view returns (string memory) {
         string memory svg = generateCollectionAvatar();
         
@@ -353,7 +352,7 @@ contract TestPixelNFT1 is ERC721, Ownable {
         return _totalMinted;
     }
 
-    // Add support for EIP-165 (Standard Interface Detection)
+    // Support for EIP-165 (Standard Interface Detection)
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return interfaceId == bytes4(0x49064906) || // ERC-4906 (Metadata Update)
                super.supportsInterface(interfaceId);
@@ -368,4 +367,3 @@ contract TestPixelNFT1 is ERC721, Ownable {
         emit BatchMetadataUpdate(0, WIDTH * HEIGHT - 1);
     }
 }
-

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
 import type { Abi } from "viem";
-const CONTRACT_ADDRESS = "0x10b5A30243396952545bF79501876FfBAee7ED49";
+const CONTRACT_ADDRESS = "0x7E2D82b2d048ED1F9d7bfDFD6684fA26415A529f";
 
 interface NFTMetadata {
   name: string;
