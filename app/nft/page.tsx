@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { usePublicClient } from "wagmi";
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
 
-const CONTRACT_ADDRESS = "0x09D2AB8E374dA70754341E9a120022d8DDbCa91a";
+const CONTRACT_ADDRESS = "0x98ddbc2f643Ca4544C63258DCC40C70A513462B1";
 
 interface NFTMetadata {
   name: string;

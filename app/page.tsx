@@ -11,7 +11,7 @@ const MIN_VIEWPORT_SIZE = 10; // Minimum zoom (most zoomed in)
 const MAX_VIEWPORT_SIZE =80; // Maximum zoom (most zoomed out)
 const PIXEL_SIZE = 8; // Base pixel size in pixels
 
-const CONTRACT_ADDRESS = "0x09D2AB8E374dA70754341E9a120022d8DDbCa91a";
+const CONTRACT_ADDRESS = "0x98ddbc2f643Ca4544C63258DCC40C70A513462B1";
 
 interface PixelData {
   color: string;
@@ -977,11 +977,16 @@ const handleTouchMove = (e: React.TouchEvent) => {
   };
   const toggleDrawMode = () => {
     setIsDrawMode(!isDrawMode);
-    if (isDrawMode) {
-      // Clear drawn pixels when exiting draw mode
+    if (!isDrawMode) {
+      // Entering draw mode - clear selected pixel to avoid confusion
+      setSelectedPixel(null);
+      // Clear drawn pixels when exiting draw mode is already handled below
+    } else {
+      // Exiting draw mode - clear drawn pixels
       setDrawnPixels(new Map());
     }
   };
+  
   // REPLACE your drawing functions with these:
   const addPixelToDrawing = (x: number, y: number) => {
     const key = `${x}-${y}`;
@@ -1528,145 +1533,200 @@ const handleTouchMove = (e: React.TouchEvent) => {
               </div>
             </div>
 
-
-            {/* Zoom Controls in Sidebar */}
-            <div className="p-6 border-b border-gray-700">
-              <h3 className="text-lg font-semibold mb-4">🔍 Zoom & Navigation</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-400">Zoom Level:</span>
-                  <span className="text-sm font-mono">{zoomPercentage}%</span>
-                </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={handleZoomIn}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm transition-colors"
-                    disabled={viewportSize <= MIN_VIEWPORT_SIZE}
-                  >
-                    🔍+ Zoom In
-                  </button>
-                  <button 
-                    onClick={handleZoomOut}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm transition-colors"
-                    disabled={viewportSize >= MAX_VIEWPORT_SIZE}
-                  >
-                    🔍- Zoom Out
-                  </button>
-                </div>
-                <div className="text-xs text-gray-500">
-                  Viewing {viewportSize}×{viewportSize} pixels ({viewportSize * viewportSize} total)
-                </div>
-              </div>
-            </div>
-
-            {/* Selected Pixel Info */}
-            {selectedPixel && (
+            {/* Selected Pixel Info - Modified to handle batch mode */}
+            {(selectedPixel || (isDrawMode && drawnPixels.size > 0)) && (
               <div className="p-6 border-b border-gray-700">
-                <h3 className="text-lg font-semibold mb-4">
-                  📍 Pixel ({selectedPixel[0]}, {selectedPixel[1]})
-                </h3>
+                {selectedPixel ? (
+                  <h3 className="text-lg font-semibold mb-4">
+                    📍 Pixel ({selectedPixel[0]}, {selectedPixel[1]})
+                  </h3>
+                ) : (
+                  <h3 className="text-lg font-semibold mb-4">
+                    🎨 Batch Mint
+                  </h3>
+                )}
                 
                 <div className="space-y-3">
-                  {isPixelMinted(selectedPixel[0], selectedPixel[1]) ? (
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
-                        <span className="text-blue-400 font-medium">Minted</span>
-                      </div>
+                  {/* Show batch mint info when in draw mode without selected pixel */}
+                  {!selectedPixel && isDrawMode && drawnPixels.size > 0 && (
+                    <>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-400">Color:</span>
+                        <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
+                        <span className="text-orange-400 font-medium">Batch Mode - {drawnPixels.size} pixels selected</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 p-2 bg-gray-800 rounded">
+                        <span className="text-sm text-gray-400">Will mint with:</span>
                         <div 
                           className="w-6 h-6 border border-gray-600 rounded"
-                          style={{ backgroundColor: pixelData[`${selectedPixel[0]}-${selectedPixel[1]}`]?.color }}
+                          style={{ backgroundColor: selectedColor }}
                         ></div>
+                        <span className="text-xs text-gray-300 font-mono">{selectedColor}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-400">Owner:</span>
-                        <span className="text-xs text-gray-300 font-mono break-all">
-                          {getPixelOwner(selectedPixel[0], selectedPixel[1])?.slice(0, 6)}...
-                          {getPixelOwner(selectedPixel[0], selectedPixel[1])?.slice(-4)}
-                        </span>
+                      
+                      <div className="text-xs text-gray-400 bg-gray-800 p-2 rounded">
+                        Click more pixels on canvas to add them, or use the mint button below to mint all selected pixels.
                       </div>
-                    </div>
-                  ) : isPixelPending(selectedPixel[0], selectedPixel[1]) ? (
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></span>
-                      <span className="text-orange-400">Transaction Pending...</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-gray-500 rounded-full"></span>
-                      <span className="text-gray-400">Available</span>
-                    </div>
+                    </>
+                  )}
+                  
+                  {/* Existing selected pixel logic */}
+                  {selectedPixel && (
+                    <>
+                      {isPixelMinted(selectedPixel[0], selectedPixel[1]) ? (
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
+                            <span className="text-blue-400 font-medium">Minted</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-400">Color:</span>
+                            <div 
+                              className="w-6 h-6 border border-gray-600 rounded"
+                              style={{ backgroundColor: pixelData[`${selectedPixel[0]}-${selectedPixel[1]}`]?.color }}
+                            ></div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-400">Owner:</span>
+                            <span className="text-xs text-gray-300 font-mono break-all">
+                              {getPixelOwner(selectedPixel[0], selectedPixel[1])?.slice(0, 6)}...
+                              {getPixelOwner(selectedPixel[0], selectedPixel[1])?.slice(-4)}
+                            </span>
+                          </div>
+                        </div>
+                      ) : isPixelPending(selectedPixel[0], selectedPixel[1]) ? (
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></span>
+                          <span className="text-orange-400">Transaction Pending...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 bg-gray-500 rounded-full"></span>
+                            <span className="text-gray-400">Available</span>
+                          </div>
+                          
+                          {/* Show selected color for single pixel minting */}
+                          <div className="flex items-center gap-2 p-2 bg-gray-800 rounded">
+                            <span className="text-sm text-gray-400">Will mint with:</span>
+                            <div 
+                              className="w-6 h-6 border border-gray-600 rounded"
+                              style={{ backgroundColor: selectedColor }}
+                            ></div>
+                            <span className="text-xs text-gray-300 font-mono">{selectedColor}</span>
+                          </div>
+                        </>
+                      )}
+                    </>
                   )}
 
                   {isConnected ? (
                     <div className="pt-2 space-y-2">
-                      {/* Only show View NFT button for minted pixels */}
-                      {isPixelMinted(selectedPixel[0], selectedPixel[1]) && (
-                        <button 
-                          className="w-full bg-purple-600 hover:bg-purple-500 text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-                          onClick={() => {
-                            const tokenId = getTokenId(selectedPixel[0], selectedPixel[1]);
-                           window.open(`/nft?tokenId=${tokenId}`, '_blank');
-                          }}
-                        >
-                          <span>🖼️</span>
-                          View Details
-                        </button>
-                      )}
-    
-                      {!isPixelMinted(selectedPixel[0], selectedPixel[1]) ? (
-                        <button 
-                          className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-                          onClick={() => {
-                            // Check if we're in draw mode with drawn pixels
-                            if (isDrawMode && drawnPixels.size > 0) {
-                              batchMintPixels();
-                            } else {
-                              console.log(`Attempting to mint pixel (${selectedPixel[0]}, ${selectedPixel[1]})`);
-                              mintPixel(...selectedPixel);
-                            }
-                          }}
-                          disabled={isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting || isBatchMinting}
+                      {/* Batch mint button when no specific pixel is selected but pixels are drawn */}
+                      {!selectedPixel && isDrawMode && drawnPixels.size > 0 && (
+                        <>
+                          <button 
+                            className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                            onClick={batchMintPixels}
+                            disabled={isBatchMinting}
                           >
-                            {isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting  ? (
+                            {isBatchMinting ? (
                               <>
                                 <span className="animate-spin">⏳</span>
-                                Minting...
+                                Minting {drawnPixels.size} pixels...
                               </>
                             ) : (
                               <>
                                 <span>⚡</span>
-                                {isDrawMode && drawnPixels.size > 0 ? `Mint ${drawnPixels.size} Pixels` : 'Mint Pixel'}
+                                Mint {drawnPixels.size} Pixels
                               </>
                             )}
-                        </button>
-                      ) : canUpdatePixel(selectedPixel[0], selectedPixel[1]) ? (
-                        <button 
-                          className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-                          onClick={() => {
-                            console.log(`Attempting to update pixel (${selectedPixel[0]}, ${selectedPixel[1]})`);
-                            updatePixel(...selectedPixel);
-                          }}
-                          disabled={isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting}
-                        >
-                          {isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting ? (
-                            <>
-                              <span className="animate-spin">⏳</span>
-                              Updating...
-                            </>
-                          ) : (
-                            <>
-                              <span>🎨</span>
-                              Update Color
-                            </>
+                          </button>
+                          
+                          <button 
+                            className="w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                            onClick={clearDrawing}
+                            disabled={isBatchMinting}
+                          >
+                            <span>🗑️</span>
+                            Clear Selection
+                          </button>
+                          
+                          <button 
+                            className="w-full bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                            onClick={toggleDrawMode}
+                          >
+                            <span>✏️</span>
+                            Exit Draw Mode
+                          </button>
+                        </>
+                      )}
+                      
+                      {/* Single pixel buttons when a pixel is selected */}
+                      {selectedPixel && (
+                        <>
+                          {/* Only show View NFT button for minted pixels */}
+                          {isPixelMinted(selectedPixel[0], selectedPixel[1]) && (
+                            <button 
+                              className="w-full bg-purple-600 hover:bg-purple-500 text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                              onClick={() => {
+                                const tokenId = getTokenId(selectedPixel[0], selectedPixel[1]);
+                              window.open(`/nft?tokenId=${tokenId}`, '_blank');
+                              }}
+                            >
+                              <span>🖼️</span>
+                              View Details
+                            </button>
                           )}
-                        </button>
-                      ) : (
-                        <div className="text-center p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded-lg">
-                          <p className="text-red-400 text-sm">You don&lsquo;t own this pixel</p>
-                        </div>
+
+                          {!isPixelMinted(selectedPixel[0], selectedPixel[1]) ? (
+                            <button 
+                              className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                              onClick={() => {
+                                console.log(`Attempting to mint pixel (${selectedPixel[0]}, ${selectedPixel[1]})`);
+                                mintPixel(...selectedPixel);
+                              }}
+                              disabled={isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting || isBatchMinting}
+                            >
+                              {isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting ? (
+                                <>
+                                  <span className="animate-spin">⏳</span>
+                                  Minting...
+                                </>
+                              ) : (
+                                <>
+                                  <span>⚡</span>
+                                  Mint Pixel
+                                </>
+                              )}
+                            </button>
+                          ) : canUpdatePixel(selectedPixel[0], selectedPixel[1]) ? (
+                            <button 
+                              className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                              onClick={() => {
+                                console.log(`Attempting to update pixel (${selectedPixel[0]}, ${selectedPixel[1]})`);
+                                updatePixel(...selectedPixel);
+                              }}
+                              disabled={isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting}
+                            >
+                              {isPixelPending(selectedPixel[0], selectedPixel[1]) || isMinting ? (
+                                <>
+                                  <span className="animate-spin">⏳</span>
+                                  Updating...
+                                </>
+                              ) : (
+                                <>
+                                  <span>🎨</span>
+                                  Update Color
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <div className="text-center p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded-lg">
+                              <p className="text-red-400 text-sm">You don&lsquo;t own this pixel</p>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   ) : (
@@ -1677,6 +1737,7 @@ const handleTouchMove = (e: React.TouchEvent) => {
                 </div>
               </div>
             )}
+
 
             {/* Instructions */}
             <div className="p-6 text-sm text-gray-400 space-y-2">

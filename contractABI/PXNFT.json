@@ -442,6 +442,19 @@
 		"type": "function"
 	},
 	{
+		"inputs": [],
+		"name": "DEFAULT_COLOR",
+		"outputs": [
+			{
+				"internalType": "string",
+				"name": "",
+				"type": "string"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
 		"inputs": [
 			{
 				"internalType": "uint256",
