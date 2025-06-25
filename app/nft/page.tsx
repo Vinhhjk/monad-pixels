@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from 'next/navigation';
 import { usePublicClient } from "wagmi";
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
@@ -16,7 +16,8 @@ interface NFTMetadata {
   }>;
 }
 
-export default function NFTViewer() {
+// Separate component that uses useSearchParams
+function NFTViewerContent() {
   const [tokenId, setTokenId] = useState<string>("");
   const [metadata, setMetadata] = useState<NFTMetadata | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,6 +62,7 @@ export default function NFTViewer() {
       autoFetch();
     }
   }, [searchParams, publicClient]);
+
   const decodeBase64JSON = (base64String: string): NFTMetadata => {
     // Remove the data:application/json;base64, prefix
     const base64Data = base64String.replace('data:application/json;base64,', '');
@@ -106,8 +108,8 @@ export default function NFTViewer() {
   };
 
   const getCoordinatesFromTokenId = (id: number) => {
-    const x = id % 10; // WIDTH = 10
-    const y = Math.floor(id / 10);
+    const x = id % 100; // Changed from 10 to 100 to match your canvas
+    const y = Math.floor(id / 100);
     return { x, y };
   };
 
@@ -129,10 +131,10 @@ export default function NFTViewer() {
               value={tokenId}
               onChange={(e) => setTokenId(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter token ID (0-99)"
+              placeholder="Enter token ID (0-9999)"
             />
             <p className="text-xs text-gray-900 mt-1">
-              Token IDs
+              Token IDs range from 0 to 9999
             </p>
           </div>
           <button
@@ -170,6 +172,7 @@ export default function NFTViewer() {
               <h2 className="text-xl font-semibold text-gray-900">NFT Image</h2>
               <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                 <div className="flex justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={metadata.image}
                     alt={metadata.name}
@@ -259,5 +262,27 @@ export default function NFTViewer() {
         </ul>
       </div>
     </div>
+  );
+}
+
+// Loading fallback component
+function NFTViewerLoading() {
+  return (
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="animate-pulse">
+        <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
+        <div className="h-20 bg-gray-200 rounded mb-6"></div>
+        <div className="h-64 bg-gray-200 rounded"></div>
+      </div>
+    </div>
+  );
+}
+
+// Main component with Suspense wrapper
+export default function NFTViewer() {
+  return (
+    <Suspense fallback={<NFTViewerLoading />}>
+      <NFTViewerContent />
+    </Suspense>
   );
 }
