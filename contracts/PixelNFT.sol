@@ -17,7 +17,7 @@ contract TestPixelNFT20 is ERC721, Ownable {
     
     // Collection info
     string public collectionDescription = "A collaborative pixel art canvas where each pixel is an NFT. Create art together on-chain!";
-    string public externalUrl = "https://pixels.monadfresn.fun";
+    string public externalUrl = "https://pixels.monadfrens.fun";
 
     // Add custom event for color updates
     event ColorUpdated(uint256 indexed tokenId, uint256 indexed x, uint256 indexed y, string color, address owner);
