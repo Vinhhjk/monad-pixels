@@ -878,32 +878,38 @@ const handleTouchMove = (e: React.TouchEvent) => {
   setLastMousePos({ x: touch.clientX, y: touch.clientY });
 };
 
-const handleTouchEnd = () => {
-  setIsDragging(false);
-};
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+  };
   const mintPixel = async (x: number, y: number) => {
     if (!isConnected || !address) return;
+    
+    // Add color validation
+    if (!selectedColor || selectedColor === '') {
+      alert('Please select a color before minting!');
+      return;
+    }
     
     const key = `${x}-${y}`;
     
     try {
-      setIsMinting(true); // Use separate minting state
+      setIsMinting(true);
       
       // Add to pending mints
       setPendingMints(prev => {
         const newSet = new Set(prev).add(key);
-        console.log(`Added ${key} to pending mints`);
+        console.log(`Added ${key} to pending mints with color ${selectedColor}`);
         return newSet;
       });
-  
+
       const txHash = await writeContractAsync({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: PXNFT_ABI,
         functionName: "mint",
         args: [BigInt(x), BigInt(y), selectedColor],
       });
-  
-      console.log("Mint transaction submitted:", txHash);
+
+      console.log("Mint transaction submitted:", txHash, "with color:", selectedColor);
       
       // Set the transaction hash and pixel info to watch for receipt
       setPendingTxHash(txHash);
@@ -924,6 +930,7 @@ const handleTouchEnd = () => {
       setIsMinting(false);
     }
   };
+
   
   const updatePixel = async (x: number, y: number) => {
     if (!isConnected) return;
