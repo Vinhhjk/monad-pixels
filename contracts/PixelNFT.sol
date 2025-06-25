@@ -13,7 +13,7 @@ contract TestPixelNFT20 is ERC721, Ownable {
     uint256 private _totalMinted = 0;
     
     // Add default color constant
-    string public constant DEFAULT_COLOR = "#ff0000";
+    string public constant DEFAULT_COLOR = "#ffffff";
     
     // Collection info
     string public collectionDescription = "A collaborative pixel art canvas where each pixel is an NFT. Create art together on-chain!";
