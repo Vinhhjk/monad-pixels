@@ -5,14 +5,13 @@ import { useAppKitAccount } from '@reown/appkit/react';
 import ConnectButton from "@/components/ConnectButton";
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
 import type { Log } from "viem";
-const CANVAS_WIDTH = 100; // Total canvas size (260x267 = 69,420 pixels)
+const CANVAS_WIDTH = 100; // Total canvas size (100x100 = 10,000 pixels)
 const CANVAS_HEIGHT = 100;
 const MIN_VIEWPORT_SIZE = 10; // Minimum zoom (most zoomed in)
-const MAX_VIEWPORT_SIZE =100; // Maximum zoom (most zoomed out)
+const MAX_VIEWPORT_SIZE =80; // Maximum zoom (most zoomed out)
 const PIXEL_SIZE = 8; // Base pixel size in pixels
 
-const CONTRACT_ADDRESS = "0x1737AD0258085a8AC4259E5d42F3866fec873a0A";
-const EXPLORER_BASE_URL = "https://testnet.monadexplorer.com/tx/"; 
+const CONTRACT_ADDRESS = "0x148d67013329aFC79626a913123A0DD7fD9cD918";
 
 interface PixelData {
   color: string;
@@ -39,7 +38,7 @@ export default function Home() {
   const [viewportX, setViewportX] = useState(0); // Top-left corner of viewport
   const [viewportY, setViewportY] = useState(0);
   const [viewportSize, setViewportSize] = useState(MIN_VIEWPORT_SIZE); // Current zoom level
-  const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
   const [showInstructions, setShowInstructions] = useState(true);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -60,25 +59,13 @@ export default function Home() {
   // Track transaction hashes and the pixel being processed
   const [pendingTxHash, setPendingTxHash] = useState<`0x${string}` | null>(null);
   const [pendingTxPixel, setPendingTxPixel] = useState<[number, number] | null>(null);
-  const [pendingTxType, setPendingTxType] = useState<'mint' | 'update' | 'batch' | 'compose' | null>(null); 
-  const [pendingBatchSize, setPendingBatchSize] = useState(0);
+  const [pendingTxType, setPendingTxType] = useState<'mint' | 'update' | null>(null);
   const [eventWatchingEnabled, setEventWatchingEnabled] = useState(false);
   const [isDrawMode, setIsDrawMode] = useState(false);
   const [drawnPixels, setDrawnPixels] = useState<Map<string, string>>(new Map());  
   const [isBatchMinting, setIsBatchMinting] = useState(false);
-  const [isBatchUpdating, setIsBatchUpdating] = useState(false);
   const [highlightedPixel, setHighlightedPixel] = useState<[number, number] | null>(null);
   const [totalMinted, setTotalMinted] = useState(0);
-  const [screenSize, setScreenSize] = useState({ width: 1024, height: 768 });
-  
-  // Area selection and composition
-  const [isAreaSelectMode, setIsAreaSelectMode] = useState(false);
-  const [selectedArea, setSelectedArea] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
-  const [areaSelectionStart, setAreaSelectionStart] = useState<[number, number] | null>(null);
-  const [isAreaDragging, setIsAreaDragging] = useState(false);
-  const [isComposing, setIsComposing] = useState(false);
-  const [ownedPixelsInArea, setOwnedPixelsInArea] = useState<number[]>([]);
-  const [compositionInfo, setCompositionInfo] = useState<{canCompose: boolean, reason: string, ownedCount: number} | null>(null);
 
   const { address, isConnected } = useAppKitAccount();
   const { writeContractAsync } = useWriteContract();
@@ -88,47 +75,10 @@ export default function Home() {
   const [sidebarDragStart, setSidebarDragStart] = useState({ x: 0, y: 0 });
   const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0 });
 
-  // Notification system
-  interface Notification {
-    id: string;
-    type: 'success' | 'error' | 'info';
-    title: string;
-    message: string;
-    timestamp: number;
-    txHash?: string; // Add this optional field
-
-  }
-  
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-
-  // Notification helper functions
-  const addNotification = useCallback((type: 'success' | 'error' | 'info', title: string, message: string,  txHash?: string) => {
-    const id = Date.now().toString();
-    const newNotification: Notification = {
-      id,
-      type,
-      title,
-      message,
-      timestamp: Date.now(),
-      txHash
-    };
-    
-    setNotifications(prev => [...prev, newNotification]);
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 8000);
-  }, []);
-
-  const removeNotification = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  }, []);
 
   useEffect(() => {
     setSidebarPosition({ x: window.innerWidth - 320, y: 64 });
-    setScreenSize({ width: window.innerWidth, height: window.innerHeight });
-  }, [])
+  }, []);
   useEffect(() => {
     const handleResize = () => {
       const sidebarWidth = Math.min(320, window.innerWidth * 0.9);
@@ -139,8 +89,6 @@ export default function Home() {
         x: Math.max(0, Math.min(maxX, prev.x)), // Keep within bounds
         y: Math.max(64, Math.min(maxY, prev.y)) // Keep within bounds
       }));
-      
-      setScreenSize({ width: window.innerWidth, height: window.innerHeight });
     };
   
     window.addEventListener('resize', handleResize);
@@ -290,108 +238,73 @@ export default function Home() {
     return { x, y };
   }, []);
 
+  // Handle successful transaction with fallback
   useEffect(() => {
-    if (isTxSuccess && txReceipt && pendingTxHash) {
+    if (isTxSuccess && txReceipt && pendingTxHash && pendingTxPixel) {
       console.log('Transaction confirmed:', txReceipt);
       
-      // Show success notification
-      if (pendingTxType === 'batch') {
-        // Determine if it was a mint or update batch based on pending states
-        const wasMintBatch = pendingBatchSize > 0 && isBatchMinting;
-        const wasUpdateBatch = pendingBatchSize > 0 && isBatchUpdating;
-        
-        if (wasMintBatch) {
-          addNotification('success', 'Batch Mint Complete!', `Successfully minted ${pendingBatchSize} pixels!`, pendingTxHash);
-        } else if (wasUpdateBatch) {
-          addNotification('success', 'Batch Update Complete!', `Successfully updated ${pendingBatchSize} pixels!`, pendingTxHash);
-        } else {
-          addNotification('success', 'Batch Operation Complete!', `Successfully processed ${pendingBatchSize} pixels!`, pendingTxHash);
-        }
-      } else if (pendingTxType === 'compose') {
-        // Add success notification for composition
-        addNotification('success', 'Composition Complete!', `Successfully composed ${pendingBatchSize} pixels into NFT!`, pendingTxHash);
-      } else if (pendingTxPixel) {
-        const [x, y] = pendingTxPixel;
-        if (pendingTxType === 'mint') {
-          addNotification('success', 'Pixel Minted!', `Successfully minted pixel at (${x}, ${y})`,pendingTxHash);
-        } else if (pendingTxType === 'update') {
-          addNotification('success', 'Color Updated!', `Successfully updated pixel at (${x}, ${y})`,pendingTxHash);
-        }
-      }
-      
-      // Store the current pixel for fallback (before clearing)
-      const currentPixel = pendingTxPixel;
-      const currentType = pendingTxType;
+      const [x, y] = pendingTxPixel;
+      const key = `${x}-${y}`;
       
       // Clear the pending transaction state
       setPendingTxHash(null);
       setPendingTxPixel(null);
-      setPendingBatchSize(0);
       
       // Fallback: If event listeners don't work, manually update after a delay
       const fallbackTimeout = setTimeout(async () => {
-        if (currentType === 'batch') {
-          console.log('Fallback: Batch transaction completed, clearing pending states');
-          // Clear all pending states for batch operations
-          setPendingMints(new Set());
-          setPendingUpdates(new Set());
-        } else if (currentPixel) {
-          const [x, y] = currentPixel;
-          const key = `${x}-${y}`;
-          console.log(`Fallback: Manually updating pixel (${x}, ${y}) after transaction confirmation`);
-          
-          // Clear pending states
-          if (currentType === 'mint') {
-            setPendingMints(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(key);
-              console.log(`Fallback: Removed ${key} from pending mints`);
-              return newSet;
-            });
-          } else if (currentType === 'update') {
-            setPendingUpdates(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(key);
-              console.log(`Fallback: Removed ${key} from pending updates`);
-              return newSet;
-            });
-          }
-          
-          // Manually fetch and update the pixel data
-          if (publicClient) {
-            try {
-              const tokenId = getTokenId(x, y);
-              const owner = await publicClient.readContract({
-                address: CONTRACT_ADDRESS as `0x${string}`,
-                abi: PXNFT_ABI,
-                functionName: 'ownerOf',
-                args: [BigInt(tokenId)],
-              }) as string;
-  
-              const color = await publicClient.readContract({
-                address: CONTRACT_ADDRESS as `0x${string}`,
-                abi: PXNFT_ABI,
-                functionName: 'getColor',
-                args: [BigInt(x), BigInt(y)],
-              }) as string;
-  
-              setPixelData(prev => ({
-                ...prev,
-                [key]: {
-                  color: color || '#ffffff',
-                  owner,
-                  isMinted: true,
-                }
-              }));
-              
-              console.log(`Fallback: Updated pixel (${x}, ${y}) with color ${color} and owner ${owner}`);
-            } catch (error) {
-              console.error('Fallback: Error fetching pixel data:', error);
-            }
+        console.log(`Fallback: Manually updating pixel (${x}, ${y}) after transaction confirmation`);
+        
+        // Clear pending states
+        if (pendingTxType === 'mint') {
+          setPendingMints(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(key);
+            console.log(`Fallback: Removed ${key} from pending mints`);
+            return newSet;
+          });
+        } else if (pendingTxType === 'update') {
+          setPendingUpdates(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(key);
+            console.log(`Fallback: Removed ${key} from pending updates`);
+            return newSet;
+          });
+        }
+        
+        // Manually fetch and update the pixel data
+        if (publicClient) {
+          try {
+            const tokenId = getTokenId(x, y);
+            const owner = await publicClient.readContract({
+              address: CONTRACT_ADDRESS as `0x${string}`,
+              abi: PXNFT_ABI,
+              functionName: 'ownerOf',
+              args: [BigInt(tokenId)],
+            }) as string;
+
+            const color = await publicClient.readContract({
+              address: CONTRACT_ADDRESS as `0x${string}`,
+              abi: PXNFT_ABI,
+              functionName: 'getColor',
+              args: [BigInt(x), BigInt(y)],
+            }) as string;
+
+            setPixelData(prev => ({
+              ...prev,
+              [key]: {
+                color: color || '#ffffff',
+                owner,
+                isMinted: true,
+              }
+            }));
+            
+            console.log(`Fallback: Updated pixel (${x}, ${y}) with color ${color} and owner ${owner}`);
+          } catch (error) {
+            console.error('Fallback: Error fetching pixel data:', error);
           }
         }
         await fetchTotalMinted();
-  
+
       }, 2000); // 2 second delay to give event listeners a chance
       
       // Clear the fallback timeout if events work properly
@@ -402,33 +315,24 @@ export default function Home() {
       
       // Store the clear function to be called by event listeners
       window.clearPixelFallback = clearFallback;
-  
+
       // Clear transaction type
       setPendingTxType(null);
     }
-  }, [isTxSuccess, txReceipt, pendingTxHash, pendingTxPixel, pendingTxType, pendingBatchSize, publicClient, getTokenId, fetchTotalMinted, addNotification, isBatchMinting, isBatchUpdating]);
-  
+  }, [isTxSuccess, txReceipt, pendingTxHash, pendingTxPixel, pendingTxType, publicClient, getTokenId, fetchTotalMinted]);
   const memoizedPixelGrid = useMemo(() => {
-    // Calculate the actual renderable area
-    const maxX = Math.min(CANVAS_WIDTH, viewportX + viewportSize);
-    const maxY = Math.min(CANVAS_HEIGHT, viewportY + viewportSize);
-    const startX = Math.max(0, viewportX);
-    const startY = Math.max(0, viewportY);
+    // Allow viewport to show the full canvas - don't constrain here
+    const actualViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, viewportX));
+    const actualViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, viewportY));
     
-    // Only render pixels that are actually within canvas bounds
-    const pixels = [];
-    for (let y = startY; y < maxY; y++) {
-      for (let x = startX; x < maxX; x++) {
-        if (x < CANVAS_WIDTH && y < CANVAS_HEIGHT) {
-          const localX = x - viewportX;
-          const localY = y - viewportY;
-          const i = localY * viewportSize + localX;
-          pixels.push({ i, globalX: x, globalY: y, localX, localY });
-        }
-      }
-    }
-    
-    return pixels;
+    return [...Array(viewportSize * viewportSize)].map((_, i) => {
+      const localX = i % viewportSize;
+      const localY = Math.floor(i / viewportSize);
+      const globalX = actualViewportX + localX;
+      const globalY = actualViewportY + localY;
+      
+      return { i, globalX, globalY };
+    });
   }, [viewportSize, viewportX, viewportY]);
 
   // Predefined color palette like r/place
@@ -737,8 +641,8 @@ export default function Home() {
             });
               // ADD THIS:
             setLoadingProgress(prev => ({ 
-            current: Math.min(prev.current + 1, prev.total), 
-            total: prev.total 
+              current: prev.current + 1, 
+              total: prev.total 
             }));
           }
         }));
@@ -834,9 +738,9 @@ const getPixelOwner = (x: number, y: number) => {
       const centerX = viewportX + viewportSize / 2;
       const centerY = viewportY + viewportSize / 2;
       
-      // Keep the center point, but ensure we don't go outside canvas
-      const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - newSize, centerX - newSize / 2));
-      const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - newSize, centerY - newSize / 2));
+      // Don't over-constrain - allow viewing edge pixels
+      const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, centerX - newSize / 2));
+      const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, centerY - newSize / 2));
       
       setViewportX(Math.floor(newViewportX));
       setViewportY(Math.floor(newViewportY));
@@ -851,27 +755,17 @@ const getPixelOwner = (x: number, y: number) => {
       const centerX = viewportX + viewportSize / 2;
       const centerY = viewportY + viewportSize / 2;
       
-      // When zooming out, adjust viewport to show as much canvas as possible
       let newViewportX = centerX - newSize / 2;
       let newViewportY = centerY - newSize / 2;
       
-      // If the new viewport would extend beyond canvas, adjust it
-      if (newViewportX + newSize > CANVAS_WIDTH) {
-        newViewportX = CANVAS_WIDTH - newSize;
-      }
-      if (newViewportY + newSize > CANVAS_HEIGHT) {
-        newViewportY = CANVAS_HEIGHT - newSize;
-      }
-      
-      // Ensure we don't go negative
-      newViewportX = Math.max(0, newViewportX);
-      newViewportY = Math.max(0, newViewportY);
+      // Only constrain to prevent negative values, allow viewing full canvas
+      newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, newViewportX));
+      newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, newViewportY));
       
       setViewportX(Math.floor(newViewportX));
       setViewportY(Math.floor(newViewportY));
     }
   }, [viewportSize, viewportX, viewportY]);
-  
   
 
   // Handle mouse wheel for zooming
@@ -893,7 +787,7 @@ const getPixelOwner = (x: number, y: number) => {
   }, [hasInteracted, handleZoomIn, handleZoomOut]);
   // Mouse handlers with reduced sensitivity
   const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDraggingCanvas(true);
+    setIsDragging(true);
     setLastMousePos({ x: e.clientX, y: e.clientY });
     if (!hasInteracted) {
       setHasInteracted(true);
@@ -902,7 +796,7 @@ const getPixelOwner = (x: number, y: number) => {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDraggingCanvas) return;
+    if (!isDragging) return;
     
     const deltaX = e.clientX - lastMousePos.x;
     const deltaY = e.clientY - lastMousePos.y;
@@ -913,13 +807,11 @@ const getPixelOwner = (x: number, y: number) => {
       return;
     }
     
-    // Calculate new viewport position
-    let newViewportX = viewportX - Math.floor(deltaX / PIXEL_SIZE);
-    let newViewportY = viewportY - Math.floor(deltaY / PIXEL_SIZE);
-    
-    // Constrain viewport to canvas bounds
-    newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - Math.min(viewportSize, CANVAS_WIDTH), newViewportX));
-    newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - Math.min(viewportSize, CANVAS_HEIGHT), newViewportY));
+    // Allow full canvas navigation - only constrain to prevent going negative
+    const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, 
+      Math.floor(viewportX - deltaX / PIXEL_SIZE)));
+    const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, 
+      Math.floor(viewportY - deltaY / PIXEL_SIZE)));
     
     if (newViewportX !== viewportX || newViewportY !== viewportY) {
       setViewportX(newViewportX);
@@ -928,17 +820,15 @@ const getPixelOwner = (x: number, y: number) => {
     
     setLastMousePos({ x: e.clientX, y: e.clientY });
   };
-  
+
   const handleMouseUp = () => {
-    setIsDraggingCanvas(false);
+    setIsDragging(false);
   };
 
   const handlePixelClick = (e: React.MouseEvent, x: number, y: number) => {
     e.stopPropagation();
     
-    if (isAreaSelectMode) {
-      handleAreaSelection(x, y);
-    } else if (isDrawMode) {
+    if (isDrawMode) {
       const key = `${x}-${y}`;
       if (drawnPixels.has(key)) {
         removePixelFromDrawing(x, y);
@@ -949,15 +839,9 @@ const getPixelOwner = (x: number, y: number) => {
       setSelectedPixel([x, y]);
     }
   };
-
-  const handlePixelHover = (x: number, y: number) => {
-    if (isAreaSelectMode) {
-      handleAreaSelectionMove(x, y);
-    }
-  };
   const handleTouchStart = (e: React.TouchEvent) => {
     const touch = e.touches[0];
-    setIsDraggingCanvas(true);
+    setIsDragging(true);
     setLastMousePos({ x: touch.clientX, y: touch.clientY });
     if (!hasInteracted) {
       setHasInteracted(true);
@@ -967,8 +851,8 @@ const getPixelOwner = (x: number, y: number) => {
 
   
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDraggingCanvas) return;
-    e.preventDefault();
+    if (!isDragging) return;
+    e.preventDefault(); // Prevent scrolling
     
     const touch = e.touches[0];
     const deltaX = touch.clientX - lastMousePos.x;
@@ -980,13 +864,11 @@ const getPixelOwner = (x: number, y: number) => {
       return;
     }
     
-    // Calculate new viewport position
-    let newViewportX = viewportX - Math.floor(deltaX / PIXEL_SIZE);
-    let newViewportY = viewportY - Math.floor(deltaY / PIXEL_SIZE);
-    
-    // Constrain viewport to canvas bounds
-    newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - Math.min(viewportSize, CANVAS_WIDTH), newViewportX));
-    newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - Math.min(viewportSize, CANVAS_HEIGHT), newViewportY));
+    // Allow full canvas navigation
+    const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, 
+      viewportX - Math.floor(deltaX / PIXEL_SIZE)));
+    const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, 
+      viewportY - Math.floor(deltaY / PIXEL_SIZE)));
     
     if (newViewportX !== viewportX || newViewportY !== viewportY) {
       setViewportX(newViewportX);
@@ -996,7 +878,7 @@ const getPixelOwner = (x: number, y: number) => {
     setLastMousePos({ x: touch.clientX, y: touch.clientY });
   };
   const handleTouchEnd = () => {
-    setIsDraggingCanvas(false);
+    setIsDragging(false);
   };
   const mintPixel = async (x: number, y: number) => {
     if (!isConnected || !address) return;
@@ -1028,9 +910,6 @@ const getPixelOwner = (x: number, y: number) => {
 
       console.log("Mint transaction submitted:", txHash, "with color:", selectedColor);
       
-      // Show notification
-      addNotification('info', 'Mint Started', `Minting pixel at (${x}, ${y})...`);
-      
       // Set the transaction hash and pixel info to watch for receipt
       setPendingTxHash(txHash);
       setPendingTxPixel([x, y]);
@@ -1038,7 +917,6 @@ const getPixelOwner = (x: number, y: number) => {
       
     } catch (error) {
       console.error("Error minting pixel:", error);
-      addNotification('error', 'Mint Failed', `Failed to mint pixel at (${x}, ${y})`);
       
       // Remove from pending mints on error
       setPendingMints(prev => {
@@ -1077,9 +955,6 @@ const getPixelOwner = (x: number, y: number) => {
   
       console.log("Update transaction submitted:", txHash);
       
-      // Show notification
-      addNotification('info', 'Update Started', `Updating pixel at (${x}, ${y})...`);
-      
       // Set the transaction hash and pixel info to watch for receipt
       setPendingTxHash(txHash);
       setPendingTxPixel([x, y]);
@@ -1087,7 +962,6 @@ const getPixelOwner = (x: number, y: number) => {
       
     } catch (error) {
       console.error("Error updating pixel:", error);
-      addNotification('error', 'Update Failed', `Failed to update pixel at (${x}, ${y})`);
       
       // Remove from pending updates on error
       setPendingUpdates(prev => {
@@ -1115,30 +989,15 @@ const getPixelOwner = (x: number, y: number) => {
   // REPLACE your drawing functions with these:
   const addPixelToDrawing = (x: number, y: number) => {
     const key = `${x}-${y}`;
-    const isMinted = isPixelMinted(x, y);
-    const isPending = isPixelPending(x, y);
-    const canUpdate = canUpdatePixel(x, y);
-    
-    // Allow adding if:
-    // 1. Pixel is unminted and not pending (for minting)
-    // 2. Pixel is minted and owned by user (for updating)
-    // Don't allow if pending or owned by someone else
-    if (!isPending && ((!isMinted) || (isMinted && canUpdate))) {
+    // Only add unminted and non-pending pixels
+    if (!isPixelMinted(x, y) && !isPixelPending(x, y)) {
       setDrawnPixels(prev => {
         const newMap = new Map(prev);
         newMap.set(key, selectedColor); // Store the current selected color
         return newMap;
       });
-    } else {
-      // Optional: Show a notification for why pixel can't be added
-      if (isPending) {
-        addNotification('info', 'Pixel Pending', `Pixel (${x}, ${y}) has a pending transaction`);
-      } else if (isMinted && !canUpdate) {
-        addNotification('info', 'Not Your Pixel', `Pixel (${x}, ${y}) is owned by someone else`);
-      }
     }
   };
-  
 
   const removePixelFromDrawing = (x: number, y: number) => {
     const key = `${x}-${y}`;
@@ -1153,170 +1012,11 @@ const getPixelOwner = (x: number, y: number) => {
     setDrawnPixels(new Map());
   };
 
-  // Area selection and composition functions
-  const handleAreaSelection = (x: number, y: number) => {
-    if (!isAreaSelectMode) return;
-    
-    if (!areaSelectionStart) {
-      setAreaSelectionStart([x, y]);
-      setIsAreaDragging(true);
-    }
-  };
-
-  const handleAreaSelectionMove = (x: number, y: number) => {
-    if (!isAreaSelectMode || !areaSelectionStart || !isAreaDragging) return;
-    
-    const [startX, startY] = areaSelectionStart;
-    const minX = Math.min(startX, x);
-    const maxX = Math.max(startX, x);
-    const minY = Math.min(startY, y);
-    const maxY = Math.max(startY, y);
-    
-    setSelectedArea({ startX: minX, startY: minY, endX: maxX, endY: maxY });
-  };
-
-  const handleAreaSelectionEnd = () => {
-    setIsAreaDragging(false);
-  };
-
-  const checkCanCompose = useCallback(async () => {
-    if (!selectedArea || !address || !publicClient) return { canCompose: false, reason: "No area selected", ownedCount: 0 };
-    
-    try {
-      // First try to get owned pixels count using getOwnedPixelsInArea if available
-      let ownedCount = 0;
-      try {
-        const ownedPixels = await publicClient.readContract({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: PXNFT_ABI,
-          functionName: 'getOwnedPixelsInArea',
-          args: [BigInt(selectedArea.startX), BigInt(selectedArea.startY), BigInt(selectedArea.endX), BigInt(selectedArea.endY), address],
-        }) as bigint[];
-        ownedCount = ownedPixels.length;
-      } catch {
-        // getOwnedPixelsInArea not available, we'll count manually
-        ownedCount = 0;
-        for (let y = selectedArea.startY; y <= selectedArea.endY; y++) {
-          for (let x = selectedArea.startX; x <= selectedArea.endX; x++) {
-            const key = `${x}-${y}`;
-            const pixel = pixelData[key];
-            if (pixel?.isMinted && pixel?.owner === address) {
-              ownedCount++;
-            }
-          }
-        }
-      }
-
-      // Simple validation logic
-      if (ownedCount < 2) {
-        return { canCompose: false, reason: "Need at least 2 owned pixels", ownedCount };
-      }
-
-      return { canCompose: true, reason: "", ownedCount };
-    } catch (error) {
-      console.error('Error checking composition eligibility:', error);
-      return { canCompose: false, reason: "Error checking eligibility", ownedCount: 0 };
-    }
-  }, [selectedArea, address, publicClient, pixelData]);
-
-  const getOwnedPixelsInArea = useCallback(async () => {
-    if (!selectedArea || !address || !publicClient) return [];
-    
-    try {
-      const result = await publicClient.readContract({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: PXNFT_ABI,
-        functionName: 'getOwnedPixelsInArea',
-        args: [BigInt(selectedArea.startX), BigInt(selectedArea.startY), BigInt(selectedArea.endX), BigInt(selectedArea.endY), address],
-      }) as bigint[];
-      
-      return result.map(tokenId => Number(tokenId));
-    } catch (error) {
-      console.error('Error getting owned pixels:', error);
-      return [];
-    }
-  }, [selectedArea, address, publicClient]);
-
-  // Effect to check composition eligibility when area changes
-  useEffect(() => {
-    const updateCompositionInfo = async () => {
-      if (!selectedArea || !address || !publicClient) {
-        setCompositionInfo(null);
-        setOwnedPixelsInArea([]);
-        return;
-      }
-
-      try {
-        const [compInfo, ownedPixels] = await Promise.all([
-          checkCanCompose(),
-          getOwnedPixelsInArea()
-        ]);
-        
-        setCompositionInfo(compInfo);
-        setOwnedPixelsInArea(ownedPixels);
-      } catch (error) {
-        console.error('Error updating composition info:', error);
-        setCompositionInfo({ canCompose: false, reason: "Error checking area", ownedCount: 0 });
-        setOwnedPixelsInArea([]);
-      }
-    };
-
-    updateCompositionInfo();
-  }, [selectedArea, address, publicClient, checkCanCompose, getOwnedPixelsInArea]);
-
-  const composePixels = async () => {
-    if (!selectedArea || !isConnected || !address) return;
-    
-    const { canCompose, reason, ownedCount } = await checkCanCompose();
-    if (!canCompose) {
-      alert(`Cannot compose area: ${reason}`);
-      return;
-    }
-
-    try {
-      setIsComposing(true);
-      
-      console.log(`Attempting to compose ${ownedCount} pixels in area (${selectedArea.startX}, ${selectedArea.startY}) to (${selectedArea.endX}, ${selectedArea.endY})`);
-      
-      const txHash = await writeContractAsync({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: PXNFT_ABI,
-        functionName: "composePixels",
-        args: [BigInt(selectedArea.startX), BigInt(selectedArea.startY), BigInt(selectedArea.endX), BigInt(selectedArea.endY)],
-      });
-      // Set the transaction hash and info to watch for receipt
-      setPendingTxHash(txHash);
-      setPendingTxType('compose');
-      setPendingBatchSize(ownedCount);
-      console.log("Composition transaction submitted:", txHash);
-      addNotification('info', 'Composition Started', `Composing ${ownedCount} pixels into NFT...`);
-    
-      // Clear selection after successful submission
-      setSelectedArea(null);
-      setAreaSelectionStart(null);
-      setIsAreaSelectMode(false);
-      
-    } catch (error) {
-      console.error("Error composing pixels:", error);
-      alert("Error composing pixels. Please make sure you own at least 2 pixels in the selected area and they are not already composed.");
-    } finally {
-      setIsComposing(false);
-    }
-  };
-
   const batchMintPixels = async () => {
     if (!isConnected || !address || drawnPixels.size === 0) return;
     
-    // Filter to only include pixels that are NOT minted (unminted pixels only)
-    const pixelArray = Array.from(drawnPixels.entries()).filter(([key]) => {
-      const [x, y] = key.split('-').map(Number);
-      return !isPixelMinted(x, y) && !isPixelPending(x, y); // Only unminted and not pending
-    });
-    
-    if (pixelArray.length === 0) {
-      addNotification('error', 'No Valid Pixels', 'No unminted pixels selected for minting');
-      return;
-    }
+    // Move pixelArray definition outside try block so it's accessible in catch
+    const pixelArray = Array.from(drawnPixels.entries()); // Now gets [key, color] pairs
     
     try {
       setIsBatchMinting(true);
@@ -1339,11 +1039,7 @@ const getPixelOwner = (x: number, y: number) => {
       
       console.log("Batch mint transaction submitted:", txHash);
       setPendingTxHash(txHash);
-      setPendingTxType('batch');
-      setPendingBatchSize(pixelArray.length);
-      
-      // Show notification
-      addNotification('info', 'Batch Mint Started', `Minting ${pixelArray.length} pixels...`);
+      setPendingTxType('mint');
       
       // Clear drawing
       setDrawnPixels(new Map());
@@ -1351,8 +1047,7 @@ const getPixelOwner = (x: number, y: number) => {
       
     } catch (error) {
       console.error("Error batch minting pixels:", error);
-      addNotification('error', 'Batch Mint Failed', 'Failed to submit batch mint transaction');
-      // Remove from pending mints on error
+      // Remove from pending mints on error - now pixelArray is accessible
       pixelArray.forEach(([key]: [string, string]) => {
         setPendingMints(prev => {
           const newSet = new Set(prev);
@@ -1362,67 +1057,6 @@ const getPixelOwner = (x: number, y: number) => {
       });
     } finally {
       setIsBatchMinting(false);
-    }
-  };
-  
-  const batchUpdatePixels = async () => {
-    if (!isConnected || !address || drawnPixels.size === 0) return;
-    
-    // Filter to only include pixels that are minted and owned by the user
-    const pixelArray = Array.from(drawnPixels.entries()).filter(([key]) => {
-      const [x, y] = key.split('-').map(Number);
-      return isPixelMinted(x, y) && canUpdatePixel(x, y) && !isPixelPending(x, y);
-    });
-    
-    if (pixelArray.length === 0) {
-      addNotification('error', 'No Valid Pixels', 'No owned pixels selected for update');
-      return;
-    }
-    
-    try {
-      setIsBatchUpdating(true);
-      
-      const xCoords = pixelArray.map(([key]) => BigInt(key.split('-')[0]));
-      const yCoords = pixelArray.map(([key]) => BigInt(key.split('-')[1]));
-      const colors = pixelArray.map(([, color]) => color);
-      
-      // Add all pixels to pending updates
-      pixelArray.forEach(([key]) => {
-        setPendingUpdates(prev => new Set(prev).add(key));
-      });
-      
-      const txHash = await writeContractAsync({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: PXNFT_ABI,
-        functionName: "batchUpdateColor",
-        args: [xCoords, yCoords, colors],
-      });
-      
-      console.log("Batch update transaction submitted:", txHash);
-      setPendingTxHash(txHash);
-      setPendingTxType('batch');
-      setPendingBatchSize(pixelArray.length);
-      
-      // Show notification
-      addNotification('info', 'Batch Update Started', `Updating ${pixelArray.length} pixels...`);
-      
-      // Clear drawing
-      setDrawnPixels(new Map());
-      setIsDrawMode(false);
-      
-    } catch (error) {
-      console.error("Error batch updating pixels:", error);
-      addNotification('error', 'Batch Update Failed', 'Failed to submit batch update transaction');
-      // Remove from pending updates on error
-      pixelArray.forEach(([key]: [string, string]) => {
-        setPendingUpdates(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(key);
-          return newSet;
-        });
-      });
-    } finally {
-      setIsBatchUpdating(false);
     }
   };
   
@@ -1482,7 +1116,7 @@ const getPixelOwner = (x: number, y: number) => {
   return (
     <div className="h-screen bg-gray-900 text-white flex overflow-hidden">
       {/* Full Screen Canvas Background */}
-      <div className="w-full h-full bg-gray-800 relative overflow-hidden">
+      <div className="w-full h-full bg-gray-800 relative">
                 {/* Header - Fixed at top with high z-index */}
         <div className="fixed top-0 left-0 right-0 z-40 px-2 sm:px-4 py-2 sm:py-3">
           <div className="flex justify-between items-center gap-1 sm:gap-2">
@@ -1555,106 +1189,28 @@ const getPixelOwner = (x: number, y: number) => {
                 {isDrawMode ? '🎨' : '✏️'}
               </button>
 
-              {/* Area Select Mode Button */}
-              <button
-                onClick={() => {
-                  setIsAreaSelectMode(!isAreaSelectMode);
-                  if (!isAreaSelectMode) {
-                    // Entering area select mode - clear other modes and selections
-                    setIsDrawMode(false);
-                    setSelectedPixel(null);
-                    setDrawnPixels(new Map());
-                  } else {
-                    // Exiting area select mode - clear selections
-                    setSelectedArea(null);
-                    setAreaSelectionStart(null);
-                    setIsAreaDragging(false);
-                  }
-                }}
-                className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm transition-colors ${
-                  isAreaSelectMode 
-                    ? 'bg-purple-600 hover:bg-purple-500 text-white' 
-                    : 'bg-gray-700 hover:bg-gray-600 text-white'
-                }`}
-                title={isAreaSelectMode ? "Exit Area Select Mode" : "Enter Area Select Mode"}
-              >
-                {isAreaSelectMode ? '🔲' : '□'}
-              </button>
-
               {/* Draw Mode Controls - Stack on mobile */}
-              {isDrawMode && drawnPixels.size > 0 && (() => {
-                const drawnPixelArray = Array.from(drawnPixels.keys());
-                
-                const unmintedCount = drawnPixelArray.filter(key => {
-                  const [x, y] = key.split('-').map(Number);
-                  return !isPixelMinted(x, y) && !isPixelPending(x, y);
-                }).length;
-                
-                const ownedCount = drawnPixelArray.filter(key => {
-                  const [x, y] = key.split('-').map(Number);
-                  return isPixelMinted(x, y) && canUpdatePixel(x, y) && !isPixelPending(x, y);
-                }).length;
-
-                const pendingCount = drawnPixelArray.filter(key => {
-                  const [x, y] = key.split('-').map(Number);
-                  return isPixelPending(x, y);
-                }).length;
-
-                const otherCount = drawnPixels.size - unmintedCount - ownedCount - pendingCount;
-
-                return (
-                  <div className="flex items-center gap-1 bg-orange-800 rounded-lg px-1 sm:px-2 py-1">
-                    <span className="text-xs text-orange-200 hidden sm:inline">
-                      {drawnPixels.size} pixels
-                    </span>
-                    <span className="text-xs text-orange-200 sm:hidden">{drawnPixels.size}</span>
-                    
-                    {/* Show breakdown on hover/larger screens */}
-                    <div className="hidden sm:block text-xs text-orange-300">
-                      {unmintedCount > 0 && `${unmintedCount} new`}
-                      {unmintedCount > 0 && ownedCount > 0 && ', '}
-                      {ownedCount > 0 && `${ownedCount} owned`}
-                      {pendingCount > 0 && `, ${pendingCount} pending`}
-                      {otherCount > 0 && `, ${otherCount} other`}
-                    </div>
-                    
-                    {/* Batch Mint Button - only show if there are unminted pixels */}
-                    {unmintedCount > 0 && (
-                      <button
-                        onClick={batchMintPixels}
-                        className="bg-green-600 hover:bg-green-500 text-white px-1 sm:px-2 py-1 rounded text-xs transition-colors"
-                        disabled={isBatchMinting || isBatchUpdating}
-                        title={`Mint ${unmintedCount} unminted pixels`}
-                      >
-                        {isBatchMinting ? '⏳' : `⚡${unmintedCount}`}
-                      </button>
-                    )}
-                    
-                    {/* Batch Update Button - only show if there are owned pixels */}
-                    {ownedCount > 0 && (
-                      <button
-                        onClick={batchUpdatePixels}
-                        className="bg-blue-600 hover:bg-blue-500 text-white px-1 sm:px-2 py-1 rounded text-xs transition-colors"
-                        disabled={isBatchMinting || isBatchUpdating}
-                        title={`Update ${ownedCount} owned pixels`}
-                      >
-                        {isBatchUpdating ? '⏳' : `🎨${ownedCount}`}
-                      </button>
-                    )}
-                    
-                    <button
-                      onClick={clearDrawing}
-                      className="bg-red-600 hover:bg-red-500 text-white px-1 sm:px-2 py-1 rounded text-xs transition-colors"
-                      title="Clear Selection"
-                      disabled={isBatchMinting || isBatchUpdating}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                );
-              })()}
-
-
+              {isDrawMode && drawnPixels.size > 0 && (
+                <div className="flex items-center gap-1 bg-orange-800 rounded-lg px-1 sm:px-2 py-1">
+                  <span className="text-xs text-orange-200 hidden sm:inline">{drawnPixels.size} pixels</span>
+                  <span className="text-xs text-orange-200 sm:hidden">{drawnPixels.size}</span>
+                  <button
+                    onClick={batchMintPixels}
+                    className="bg-green-600 hover:bg-green-500 text-white px-1 sm:px-2 py-1 rounded text-xs transition-colors"
+                    disabled={isBatchMinting}
+                    title="Mint Selected Pixels"
+                  >
+                    {isBatchMinting ? '⏳' : '⚡'}
+                  </button>
+                  <button
+                    onClick={clearDrawing}
+                    className="bg-red-600 hover:bg-red-500 text-white px-1 sm:px-2 py-1 rounded text-xs transition-colors"
+                    title="Clear Selection"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
 
               {/* Zoom Controls - Compact on mobile */}
               <div className="flex items-center gap-1 bg-gray-800 rounded-lg px-1 sm:px-2 py-1">
@@ -1713,8 +1269,9 @@ const getPixelOwner = (x: number, y: number) => {
         <div 
           className="absolute inset-0 bg-gray-100 select-none"
           style={{ 
-            cursor: isDraggingCanvas ? 'grabbing' : 'grab',
+            cursor: isDragging ? 'grabbing' : 'grab',
             touchAction: 'none' // Prevent default touch behaviors
+
           }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -1737,7 +1294,7 @@ const getPixelOwner = (x: number, y: number) => {
           )}
           {/* Chunk loading progress indicator */}
           {isLoadingChunks && !isInitialLoad && loadingProgress.total > 0 && (
-            <div className="absolute top-20 left-4 bg-black bg-opacity-80 text-white text-xs px-4 py-3 rounded-lg z-10 min-w-[200px]">
+            <div className="absolute top-20 right-4 bg-black bg-opacity-80 text-white text-xs px-4 py-3 rounded-lg z-10 min-w-[200px]">
               <div className="flex items-center gap-2 mb-2">
                 <span className="animate-spin">⚡</span>
                 <span>Loading...</span>
@@ -1759,121 +1316,75 @@ const getPixelOwner = (x: number, y: number) => {
 
           {/* Direct pixel grid - fills entire screen */}
           <div 
-            className="absolute inset-0 overflow-hidden"
+            className="absolute inset-0 flex items-center justify-center"
           >
-            <div 
-              className="w-full h-full flex items-center justify-center"
-              style={{
-                padding: screenSize.width < 768 ? '8px' : '16px',
-                minHeight: '0' // Allow flex shrinking
-              }}
-            >
-              <div 
-                className="grid bg-gray-200"
-                style={{ 
-                  gridTemplateColumns: `repeat(${Math.min(viewportSize, CANVAS_WIDTH - viewportX)}, 1fr)`,
-                  gridTemplateRows: `repeat(${Math.min(viewportSize, CANVAS_HEIGHT - viewportY)}, 1fr)`,
-                  gap: '1px',
-                  padding: '1px',
-                  // Dynamic sizing based on zoom level
-                  // When zoomed out (showing full canvas), maintain square aspect ratio
-                  // When zoomed in, fill available space
-                  width: viewportSize >= MAX_VIEWPORT_SIZE 
-                    ? // Full canvas view - use smaller dimension to fit square
-                      screenSize.width < 768
-                        ? 'min(calc(100vw - 16px), calc(100vh - 16px))'
-                        : showSidebar
-                          ? 'min(calc(100vw - 340px), calc(100vh - 32px))'
-                          : 'min(calc(100vw - 32px), calc(100vh - 32px))'
-                    : // Zoomed in view - fill available space
-                      screenSize.width < 768
-                        ? 'calc(100vw - 16px)'
-                        : showSidebar 
-                          ? 'calc(100vw - 340px)'
-                          : 'calc(100vw - 32px)',
-                  height: viewportSize >= MAX_VIEWPORT_SIZE
-                    ? // Full canvas view - use smaller dimension to fit square
-                      screenSize.width < 768
-                        ? 'min(calc(100vw - 16px), calc(100vh - 16px))'
-                        : showSidebar
-                          ? 'min(calc(100vw - 340px), calc(100vh - 32px))'
-                          : 'min(calc(100vw - 32px), calc(100vh - 32px))'
-                    : // Zoomed in view - fill available space
-                      screenSize.width < 768
-                        ? 'calc(100vh - 16px)'
-                        : 'calc(100vh - 32px)',
-                  maxWidth: '100%',
-                  maxHeight: '100%'
-                }}
-              >
-                {memoizedPixelGrid.map(({ globalX, globalY }) => {
-                  const isSelected = selectedPixel?.[0] === globalX && selectedPixel?.[1] === globalY;
-                  const isHighlighted = highlightedPixel?.[0] === globalX && highlightedPixel?.[1] === globalY;
-                  const isMinted = isPixelMinted(globalX, globalY);
-                  const isPending = isPixelPending(globalX, globalY);
-                  const pixelColor = getPixelColor(globalX, globalY);
-                  const isDrawn = isDrawMode && drawnPixels.has(`${globalX}-${globalY}`);
-                  
-                  // Check if pixel is in selected area
-                  const isInSelectedArea = selectedArea && 
-                    globalX >= selectedArea.startX && globalX <= selectedArea.endX &&
-                    globalY >= selectedArea.startY && globalY <= selectedArea.endY;
-                  
-                  // Check if pixel is owned by user in the selected area
-                  const isOwnedInArea = isInSelectedArea && ownedPixelsInArea.includes(getTokenId(globalX, globalY));
-                  
-                  // Determine border style based on state
-                  let borderStyle = 'none';
-                  if (isHighlighted) {
-                    borderStyle = '2px solid #f59e0b';
-                  } else if (isSelected) {
-                    borderStyle = '2px solid #3b82f6';
-                  } else if (isOwnedInArea) {
-                    borderStyle = '2px solid #10b981'; // Green for owned pixels in area
-                  } else if (isInSelectedArea) {
-                    borderStyle = '2px solid #a855f7'; // Purple for area selection
-                  }          
-                  
-                  return (
-                    <div
-                      key={`${globalX}-${globalY}`}
-                      onClick={(e) => handlePixelClick(e, globalX, globalY)}
-                      onMouseEnter={() => handlePixelHover(globalX, globalY)}
-                      onMouseUp={handleAreaSelectionEnd}
-                      className={`
-                        relative cursor-crosshair transition-all duration-150 hover:opacity-80 hover:scale-105 hover:z-10
-                        ${isPending ? "animate-pulse" : ""}
-                        ${isDrawn ? "ring-2 ring-orange-400" : ""} 
-                        ${isHighlighted ? "animate-bounce" : ""}
-                        ${isOwnedInArea ? "ring-2 ring-green-400" : isInSelectedArea ? "ring-2 ring-purple-400" : ""}
-                      `}
-                      style={{ 
-                        backgroundColor: pixelColor,
-                        border: borderStyle,
-                        aspectRatio: '1 / 1', // Force each pixel to be square
-                        boxShadow: isHighlighted ? '0 0 10px rgba(245, 158, 11, 0.8)' : 'none',
-                      }}
-                      title={`Pixel (${globalX}, ${globalY}) ${isMinted ? '- Minted' : '- Available'}${isPending ? ' - Pending' : ''}${isDrawn ? ' - Selected for minting' : ''}${isHighlighted ? ' - Found!' : ''}`}
-                    >
-                      {isPending && (
-                        <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse shadow-sm"></div>
-                      )}
-                      {isDrawn && (
-                        <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-orange-400 rounded-full shadow-sm"></div>
-                      )}
-                      {isHighlighted && (
-                        <div className="absolute inset-0 border-2 border-amber-400 animate-ping"></div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+          <div 
+            className="absolute inset-0 grid"
+            style={{ 
+              gridTemplateColumns: `repeat(${viewportSize}, 1fr)`,
+              gridTemplateRows: `repeat(${viewportSize}, 1fr)`,
+              gap: '1px',
+              padding: '1px',
+              width: '100vw',
+              height: '100vh',
+              minWidth: '100vw', // Ensure minimum full width
+              minHeight: '100vh', // Ensure minimum full height
+            }}
+          >
+
+        {memoizedPixelGrid.map(({ i, globalX, globalY }) => {
+          // Skip if outside canvas bounds, but render empty space
+          if (globalX >= CANVAS_WIDTH || globalY >= CANVAS_HEIGHT || globalX < 0 || globalY < 0) {
+            return (
+              <div key={i} className="bg-gray-300 opacity-50" />
+            );
+          }
+              
+            const isSelected = selectedPixel?.[0] === globalX && selectedPixel?.[1] === globalY;
+            const isHighlighted = highlightedPixel?.[0] === globalX && highlightedPixel?.[1] === globalY;
+            const isMinted = isPixelMinted(globalX, globalY);
+            const isPending = isPixelPending(globalX, globalY);
+            const pixelColor = getPixelColor(globalX, globalY);
+            const isDrawn = isDrawMode && drawnPixels.has(`${globalX}-${globalY}`);
+                // Determine border style based on state
+              let borderStyle = 'none';
+              if (isHighlighted) {
+                borderStyle = '3px solid #f59e0b'; // Amber border for highlighted pixel
+              } else if (isSelected) {
+                borderStyle = '2px solid #3b82f6'; // Blue border for selected pixel
+              }          
+              return (
+                <div
+                  key={i}
+                  onClick={(e) => handlePixelClick(e, globalX, globalY)}
+                  className={`
+                    relative cursor-crosshair transition-all duration-150 hover:opacity-80 hover:scale-105 hover:z-10
+                    ${isPending ? "animate-pulse" : ""}
+                    ${isDrawn ? "ring-2 ring-orange-400" : ""} 
+                    ${isHighlighted ? "animate-bounce" : ""}
+                  `}
+                  style={{ 
+                    backgroundColor: pixelColor,
+                    border: borderStyle,
+                    aspectRatio: '1 / 1', // Ensure each pixel is square
+                    boxShadow: isHighlighted ? '0 0 10px rgba(245, 158, 11, 0.8)' : 'none',
+                  }}
+                  title={`Pixel (${globalX}, ${globalY}) ${isMinted ? '- Minted' : '- Available'}${isPending ? ' - Pending' : ''}${isDrawn ? ' - Selected for minting' : ''}${isHighlighted ? ' - Found!' : ''}`}
+                >
+                  {isPending && (
+                    <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse shadow-sm"></div>
+                  )}
+                  {isDrawn && (
+                    <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-orange-400 rounded-full shadow-sm"></div>
+                  )}
+                  {isHighlighted && (
+                    <div className="absolute inset-0 border-2 border-amber-400 animate-ping"></div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-
-
-
-
+          </div>
           {/* Viewport indicator */}
           <div className="absolute bottom-4 right-4 bg-black bg-opacity-70 text-white text-sm px-3 py-2 rounded-lg z-10">
             ({viewportX}, {viewportY}) | {viewportSize}×{viewportSize} | {Object.keys(pixelData).length} minted
@@ -2021,105 +1532,8 @@ const getPixelOwner = (x: number, y: number) => {
               </div>
             </div>
 
-            {/* Area Selection Info */}
-            {isAreaSelectMode && (
-              <div className="p-6 border-b border-gray-700">
-                <h3 className="text-lg font-semibold mb-4 text-purple-400">
-                  🔲 Area Composition Mode
-                </h3>
-                
-                {selectedArea ? (
-                  <>
-                    <div className="space-y-2 mb-4">
-                      <div className="text-sm">
-                        <span className="text-gray-400">Selected Area:</span>{' '}
-                        <span className="text-purple-300">
-                          ({selectedArea.startX}, {selectedArea.startY}) to ({selectedArea.endX}, {selectedArea.endY})
-                        </span>
-                      </div>
-                      <div className="text-sm">
-                        <span className="text-gray-400">Total Area:</span>{' '}
-                        <span className="text-purple-300">
-                          {selectedArea.endX - selectedArea.startX + 1} × {selectedArea.endY - selectedArea.startY + 1} = {(selectedArea.endX - selectedArea.startX + 1) * (selectedArea.endY - selectedArea.startY + 1)} pixels
-                        </span>
-                      </div>
-                      {compositionInfo && (
-                        <div className="text-sm">
-                          <span className="text-gray-400">Your Pixels:</span>{' '}
-                          <span className={`font-medium ${compositionInfo.canCompose ? 'text-green-400' : 'text-yellow-400'}`}>
-                            {compositionInfo.ownedCount} pixels
-                          </span>
-                          {compositionInfo.ownedCount > 0 && (
-                            <span className="text-gray-500 text-xs ml-2">
-                              (will compose these only)
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {compositionInfo && !compositionInfo.canCompose && compositionInfo.ownedCount < 2 && (
-                        <div className="text-sm p-2 bg-yellow-900 bg-opacity-50 border border-yellow-600 rounded">
-                          <span className="text-yellow-400">ℹ️ {compositionInfo.reason}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {isConnected ? (
-                      <div className="space-y-2">
-                        <button 
-                          className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-                          onClick={composePixels}
-                          disabled={isComposing || !compositionInfo?.canCompose}
-                        >
-                          {isComposing ? (
-                            <>
-                              <span className="animate-spin">⏳</span>
-                              Composing {compositionInfo?.ownedCount || 0} pixels...
-                            </>
-                          ) : (
-                            <>
-                              <span>🔧</span>
-                              Compose {compositionInfo?.ownedCount || 0} Pixels
-                            </>
-                          )}
-                        </button>
-                        
-                        <button 
-                          className="w-full bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-                          onClick={() => {
-                            setSelectedArea(null);
-                            setAreaSelectionStart(null);
-                            setIsAreaDragging(false);
-                          }}
-                        >
-                          <span>❌</span>
-                          Clear Selection
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="text-center text-gray-400 py-4">
-                        Connect wallet to compose pixels
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-gray-400 text-sm space-y-2">
-                    <p>Select any area - small or large! The system automatically finds your pixels and composes them into one NFT.</p>
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-3 h-3 border-2 border-purple-400 rounded-sm"></div>
-                      <span>Selected area</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-3 h-3 border-2 border-green-400 rounded-sm"></div>
-                      <span>Your pixels (will be composed)</span>
-                    </div>
-                    <p className="text-xs text-green-300">💡 No limits - compose 2 pixels or 2000!</p>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Selected Pixel Info - Modified to handle batch mode */}
-            {(selectedPixel || (isDrawMode && drawnPixels.size > 0)) && !isAreaSelectMode && (
+            {(selectedPixel || (isDrawMode && drawnPixels.size > 0)) && (
               <div className="p-6 border-b border-gray-700">
                 {selectedPixel ? (
                   <h3 className="text-lg font-semibold mb-4">
@@ -2208,144 +1622,45 @@ const getPixelOwner = (x: number, y: number) => {
                   {isConnected ? (
                     <div className="pt-2 space-y-2">
                       {/* Batch mint button when no specific pixel is selected but pixels are drawn */}
-{/* Batch mode info when no specific pixel is selected but pixels are drawn */}
-{!selectedPixel && isDrawMode && drawnPixels.size > 0 && (() => {
-  const drawnPixelArray = Array.from(drawnPixels.keys());
-  
-  const unmintedPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return !isPixelMinted(x, y) && !isPixelPending(x, y);
-  });
-  
-  const ownedPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return isPixelMinted(x, y) && canUpdatePixel(x, y) && !isPixelPending(x, y);
-  });
-
-  const pendingPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return isPixelPending(x, y);
-  });
-
-  const otherPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return isPixelMinted(x, y) && !canUpdatePixel(x, y) && !isPixelPending(x, y);
-  });
-
-  return (
-    <>
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
-        <span className="text-orange-400 font-medium">Batch Mode - {drawnPixels.size} pixels selected</span>
-      </div>
-      
-      {/* Breakdown of selected pixels */}
-      <div className="space-y-2 mb-4">
-        {unmintedPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-green-500 rounded"></div>
-            <span className="text-green-400">{unmintedPixels.length} unminted (ready to mint)</span>
-          </div>
-        )}
-        {ownedPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-blue-500 rounded"></div>
-            <span className="text-blue-400">{ownedPixels.length} owned (ready to update)</span>
-          </div>
-        )}
-        {pendingPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-orange-500 rounded animate-pulse"></div>
-            <span className="text-orange-400">{pendingPixels.length} pending transactions</span>
-          </div>
-        )}
-        {otherPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-gray-500 rounded"></div>
-            <span className="text-gray-400">{otherPixels.length} owned by others</span>
-          </div>
-        )}
-      </div>
-      
-      <div className="flex items-center gap-2 p-2 bg-gray-800 rounded mb-4">
-        <span className="text-sm text-gray-400">Selected color:</span>
-        <div 
-          className="w-6 h-6 border border-gray-600 rounded"
-          style={{ backgroundColor: selectedColor }}
-        ></div>
-        <span className="text-xs text-gray-300 font-mono">{selectedColor}</span>
-      </div>
-      
-      <div className="space-y-2">
-        {/* Batch Mint Button */}
-        {unmintedPixels.length > 0 && (
-          <button 
-            className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-            onClick={batchMintPixels}
-            disabled={isBatchMinting || isBatchUpdating}
-          >
-            {isBatchMinting ? (
-              <>
-                <span className="animate-spin">⏳</span>
-                Minting {unmintedPixels.length} pixels...
-              </>
-            ) : (
-              <>
-                <span>⚡</span>
-                Mint {unmintedPixels.length} Pixels
-              </>
-            )}
-          </button>
-        )}
-        
-        {/* Batch Update Button */}
-        {ownedPixels.length > 0 && (
-          <button 
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-            onClick={batchUpdatePixels}
-            disabled={isBatchMinting || isBatchUpdating}
-          >
-            {isBatchUpdating ? (
-              <>
-                <span className="animate-spin">⏳</span>
-                Updating {ownedPixels.length} pixels...
-              </>
-            ) : (
-              <>
-                <span>🎨</span>
-                Update {ownedPixels.length} Pixels
-              </>
-            )}
-          </button>
-        )}
-        
-        <button 
-          className="w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-          onClick={clearDrawing}
-          disabled={isBatchMinting || isBatchUpdating}
-        >
-          <span>🗑️</span>
-          Clear Selection
-        </button>
-        
-        <button 
-          className="w-full bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-          onClick={toggleDrawMode}
-          disabled={isBatchMinting || isBatchUpdating}
-        >
-          <span>✏️</span>
-          Exit Draw Mode
-        </button>
-      </div>
-      
-      <div className="text-xs text-gray-400 bg-gray-800 p-2 rounded mt-4">
-        💡 <strong>Tip:</strong> Click pixels on canvas to add/remove them. Green pixels will be minted, blue pixels will be updated with your selected color.
-      </div>
-    </>
-  );
-})()}
-
-
+                      {!selectedPixel && isDrawMode && drawnPixels.size > 0 && (
+                        <>
+                          <button 
+                            className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                            onClick={batchMintPixels}
+                            disabled={isBatchMinting}
+                          >
+                            {isBatchMinting ? (
+                              <>
+                                <span className="animate-spin">⏳</span>
+                                Minting {drawnPixels.size} pixels...
+                              </>
+                            ) : (
+                              <>
+                                <span>⚡</span>
+                                Mint {drawnPixels.size} Pixels
+                              </>
+                            )}
+                          </button>
+                          
+                          <button 
+                            className="w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                            onClick={clearDrawing}
+                            disabled={isBatchMinting}
+                          >
+                            <span>🗑️</span>
+                            Clear Selection
+                          </button>
+                          
+                          <button 
+                            className="w-full bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                            onClick={toggleDrawMode}
+                          >
+                            <span>✏️</span>
+                            Exit Draw Mode
+                          </button>
+                        </>
+                      )}
+                      
                       {/* Single pixel buttons when a pixel is selected */}
                       {selectedPixel && (
                         <>
@@ -2421,116 +1736,9 @@ const getPixelOwner = (x: number, y: number) => {
                 </div>
               </div>
             )}
-
-
-            {/* Instructions */}
-            <div className="p-6 text-sm text-gray-400 space-y-2">
-              <h3 className="text-white font-semibold mb-3">📖 How to Play</h3>
-              <div className="space-y-1">
-                <p>• Click any pixel to select it</p>
-                <p>• Choose a color from the palette</p>
-                <p>• Mint unminted pixels to claim them</p>
-                <p>• Update colors of pixels you own</p>
-                <p>• Drag to pan around the canvas</p>
-                <p>• Scroll or use buttons to zoom</p>
-              </div>
-              
-              <div className="pt-4 border-t border-gray-700 mt-4">
-                <h4 className="text-white font-medium mb-2">Legend</h4>
-                <div className="space-y-1 text-xs">
-                  <p><span className="text-blue-400">●</span> Blue dots = Minted pixels</p>
-                  <p><span className="text-orange-400">●</span> Orange dots = Pending transactions</p>
-                  <p><span className="text-yellow-400">●</span> Yellow border = Selected pixel</p>
-                </div>
-              </div>
-              
-              {/* Performance info */}
-            <div className="pt-4 border-t border-gray-700 mt-4">
-              <h4 className="text-white font-medium mb-2">Performance Info</h4>
-              <div className="space-y-1 text-xs text-gray-500">
-                <p>Canvas: {CANVAS_WIDTH}×{CANVAS_HEIGHT} pixels</p>
-                <p>Viewport: {viewportSize}×{viewportSize} pixels</p>
-                <p>Minted pixels: {Object.keys(pixelData).length}</p>
-                <p>Total possible: {CANVAS_WIDTH * CANVAS_HEIGHT}</p>
-              </div>
-            </div>
-            </div>
           </div>
         </div>
       )}
-
-      {/* Notification Container section */}
-      <div className="fixed top-20 right-4 z-50 space-y-2 pointer-events-none">
-        {notifications.map((notification) => (
-          <div
-            key={notification.id}
-            className={`
-              w-80 pointer-events-auto
-              bg-white rounded-lg shadow-lg border-l-4 p-3
-              transform transition-all duration-300 ease-in-out
-              ${notification.type === 'success' ? 'border-green-500' : 
-                notification.type === 'error' ? 'border-red-500' : 'border-blue-500'}
-              animate-slide-in-right
-            `}
-            style={{
-              animation: 'slideInRight 0.3s ease-out'
-            }}
-          >
-            <div className="flex items-start">
-              <div className="flex-shrink-0">
-                {notification.type === 'success' && (
-                  <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs">✓</span>
-                  </div>
-                )}
-                {notification.type === 'error' && (
-                  <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs">✕</span>
-                  </div>
-                )}
-                {notification.type === 'info' && (
-                  <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs">i</span>
-                  </div>
-                )}
-              </div>
-              <div className="ml-3 w-0 flex-1">
-                <p className="text-sm font-medium text-gray-900">
-                  {notification.title}
-                </p>
-                <p className="mt-1 text-sm text-gray-500">
-                  {notification.message}
-                </p>
-                {/* Add explorer link for success notifications with txHash */}
-                {notification.type === 'success' && notification.txHash && (
-                  <div className="mt-2">
-                    <a
-                      href={`${EXPLORER_BASE_URL}${notification.txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                    >
-                      <span>🔗</span>
-                      View on Explorer
-                      <span className="text-gray-400">↗</span>
-                    </a>
-                  </div>
-                )}
-              </div>
-              <div className="ml-4 flex-shrink-0 flex">
-                <button
-                  className="inline-flex text-gray-400 hover:text-gray-500 focus:outline-none"
-                  onClick={() => removeNotification(notification.id)}
-                >
-                  <span className="sr-only">Close</span>
-                  <span className="h-5 w-5 text-lg leading-none">×</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
 
     </div>
   );
