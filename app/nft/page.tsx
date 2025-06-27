@@ -129,12 +129,69 @@ function NFTViewerContent() {
     
     setIsLoadingCollection(true);
     try {
+      // TEST: Try direct RPC call first
+      console.log('🧪 Testing direct RPC call...');
+      
+      const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || 'https://your-rpc-endpoint'; // Add your RPC URL
+      console.log('RPC URL:', rpcUrl);
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_call',
+          params: [
+            {
+              to: CONTRACT_ADDRESS,
+              data: '0xe8a3d485', // contractURI() function selector
+              gas: '174876E800'
+            },
+            'latest'
+          ],
+          id: 1
+        })
+      });
+  
+      const rpcResult = await response.json();
+      console.log('RPC Response:', rpcResult);
+  
+      if (rpcResult.result && rpcResult.result !== '0x') {
+        // Decode the hex result
+        const hexData = rpcResult.result.slice(2); // Remove 0x prefix
+        const decodedHex = Buffer.from(hexData, 'hex').toString('utf8');
+        console.log('Decoded hex:', decodedHex);
+        
+        // Extract the base64 JSON part
+        const base64Match = decodedHex.match(/data:application\/json;base64,([A-Za-z0-9+/=]+)/);
+        if (base64Match) {
+          const base64Data = base64Match[1];
+          const jsonString = atob(base64Data);
+          const metadata = JSON.parse(jsonString);
+          console.log('Parsed metadata:', metadata);
+          
+          if (metadata.image) {
+            setCollectionAvatar(metadata.image);
+            console.log('✅ RPC method worked!');
+            return;
+          }
+        }
+      }
+  
+      throw new Error('RPC call succeeded but no valid data returned');
+  
+    } catch (rpcError) {
+      console.error('❌ RPC method failed:', rpcError);
+      
+      // Fallback to your original publicClient method
+      console.log('Falling back to original publicClient method...');
       try {
         const contractCall: ReadContractWithGas = {
           address: CONTRACT_ADDRESS as `0x${string}`,
           abi: PXNFT_ABI as Abi,
           functionName: 'contractURI',
-          gas: BigInt(100000000),
+          gas: BigInt(1000000000000000),
         };
   
         const contractURIResult = await publicClient.readContract(contractCall as Parameters<typeof publicClient.readContract>[0]) as string;        
@@ -146,36 +203,28 @@ function NFTViewerContent() {
   
         if (contractMetadata.image) {
           setCollectionAvatar(contractMetadata.image);
+          console.log('✅ PublicClient fallback worked');
           return;
         }
       } catch (contractURIError) {
-        console.log('contractURI failed', contractURIError);
+        console.log('❌ contractURI failed', contractURIError);
       }
   
-      // Fallback - create a simple placeholder
-      console.log('contractURI failed, using placeholder');
+      // Final fallback - your original placeholder
+      console.log('Using placeholder...');
       setCollectionAvatar('data:image/svg+xml;base64,' + btoa(`
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
           <rect width="100" height="100" fill="#f0f0f0"/>
-          <text x="50" y="50" text-anchor="middle" font-family="Arial" font-size="8" fill="#666">Canvas</text>
-          <text x="50" y="60" text-anchor="middle" font-family="Arial" font-size="6" fill="#666">Loading...</text>
+          <text x="50" y="45" text-anchor="middle" font-family="Arial" font-size="8" fill="#666">Canvas</text>
+          <text x="50" y="55" text-anchor="middle" font-family="Arial" font-size="6" fill="#666">Loading...</text>
         </svg>
       `));
   
-    } catch (error) {
-      console.error('Error fetching collection avatar:', error);
-      // Create error placeholder
-      setCollectionAvatar('data:image/svg+xml;base64,' + btoa(`
-        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
-          <rect width="100" height="100" fill="#ffebee"/>
-          <text x="50" y="50" text-anchor="middle" font-family="Arial" font-size="8" fill="#c62828">Error</text>
-          <text x="50" y="60" text-anchor="middle" font-family="Arial" font-size="6" fill="#c62828">Load Failed</text>
-        </svg>
-      `));
     } finally {
       setIsLoadingCollection(false);
     }
   }, [publicClient]);
+  
 
   // Add this useEffect after your existing useEffect
   useEffect(() => {

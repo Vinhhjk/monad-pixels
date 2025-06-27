@@ -321,9 +321,9 @@ export default function Home() {
     }
   }, [isTxSuccess, txReceipt, pendingTxHash, pendingTxPixel, pendingTxType, publicClient, getTokenId, fetchTotalMinted]);
   const memoizedPixelGrid = useMemo(() => {
-    // Allow viewport to show the full canvas - don't constrain here
-    const actualViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, viewportX));
-    const actualViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, viewportY));
+    // Ensure viewport doesn't exceed canvas bounds
+    const actualViewportX = Math.min(viewportX, CANVAS_WIDTH - viewportSize);
+    const actualViewportY = Math.min(viewportY, CANVAS_HEIGHT - viewportSize);
     
     return [...Array(viewportSize * viewportSize)].map((_, i) => {
       const localX = i % viewportSize;
@@ -334,6 +334,7 @@ export default function Home() {
       return { i, globalX, globalY };
     });
   }, [viewportSize, viewportX, viewportY]);
+  
 
   // Predefined color palette like r/place
   const colorPalette = [
@@ -738,14 +739,14 @@ const getPixelOwner = (x: number, y: number) => {
       const centerX = viewportX + viewportSize / 2;
       const centerY = viewportY + viewportSize / 2;
       
-      // Don't over-constrain - allow viewing edge pixels
-      const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, centerX - newSize / 2));
-      const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, centerY - newSize / 2));
+      const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - newSize, centerX - newSize / 2));
+      const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - newSize, centerY - newSize / 2));
       
-      setViewportX(Math.floor(newViewportX));
-      setViewportY(Math.floor(newViewportY));
+      setViewportX(Math.floor(newViewportX)); // Ensure integer
+      setViewportY(Math.floor(newViewportY)); // Ensure integer
     }
   }, [viewportSize, viewportX, viewportY]);
+  
   
   const handleZoomOut = useCallback(() => {
     const newSize = Math.min(MAX_VIEWPORT_SIZE, viewportSize + 5);
@@ -758,12 +759,12 @@ const getPixelOwner = (x: number, y: number) => {
       let newViewportX = centerX - newSize / 2;
       let newViewportY = centerY - newSize / 2;
       
-      // Only constrain to prevent negative values, allow viewing full canvas
-      newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, newViewportX));
-      newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, newViewportY));
+      // Ensure viewport stays within canvas bounds
+      newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - newSize, newViewportX));
+      newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - newSize, newViewportY));
       
-      setViewportX(Math.floor(newViewportX));
-      setViewportY(Math.floor(newViewportY));
+      setViewportX(Math.floor(newViewportX)); // Ensure integer
+      setViewportY(Math.floor(newViewportY)); // Ensure integer
     }
   }, [viewportSize, viewportX, viewportY]);
   
@@ -807,11 +808,10 @@ const getPixelOwner = (x: number, y: number) => {
       return;
     }
     
-    // Allow full canvas navigation - only constrain to prevent going negative
-    const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, 
-      Math.floor(viewportX - deltaX / PIXEL_SIZE)));
-    const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, 
-      Math.floor(viewportY - deltaY / PIXEL_SIZE)));
+    const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - viewportSize, 
+      Math.floor(viewportX - deltaX / PIXEL_SIZE))); // Add Math.floor
+    const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - viewportSize, 
+      Math.floor(viewportY - deltaY / PIXEL_SIZE))); // Add Math.floor
     
     if (newViewportX !== viewportX || newViewportY !== viewportY) {
       setViewportX(newViewportX);
@@ -820,6 +820,7 @@ const getPixelOwner = (x: number, y: number) => {
     
     setLastMousePos({ x: e.clientX, y: e.clientY });
   };
+  
 
   const handleMouseUp = () => {
     setIsDragging(false);
@@ -850,33 +851,33 @@ const getPixelOwner = (x: number, y: number) => {
   };
 
   
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDragging) return;
-    e.preventDefault(); // Prevent scrolling
-    
-    const touch = e.touches[0];
-    const deltaX = touch.clientX - lastMousePos.x;
-    const deltaY = touch.clientY - lastMousePos.y;
-    
-    const movementThreshold = PIXEL_SIZE * 2;
-    
-    if (Math.abs(deltaX) < movementThreshold && Math.abs(deltaY) < movementThreshold) {
-      return;
-    }
-    
-    // Allow full canvas navigation
-    const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - 1, 
-      viewportX - Math.floor(deltaX / PIXEL_SIZE)));
-    const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - 1, 
-      viewportY - Math.floor(deltaY / PIXEL_SIZE)));
-    
-    if (newViewportX !== viewportX || newViewportY !== viewportY) {
-      setViewportX(newViewportX);
-      setViewportY(newViewportY);
-    }
-    
-    setLastMousePos({ x: touch.clientX, y: touch.clientY });
-  };
+const handleTouchMove = (e: React.TouchEvent) => {
+  if (!isDragging) return;
+  e.preventDefault(); // Prevent scrolling
+  
+  const touch = e.touches[0];
+  const deltaX = touch.clientX - lastMousePos.x;
+  const deltaY = touch.clientY - lastMousePos.y;
+  
+  const movementThreshold = PIXEL_SIZE * 2;
+  
+  if (Math.abs(deltaX) < movementThreshold && Math.abs(deltaY) < movementThreshold) {
+    return;
+  }
+  
+  const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - viewportSize, 
+    viewportX - Math.floor(deltaX / PIXEL_SIZE)));
+  const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - viewportSize, 
+    viewportY - Math.floor(deltaY / PIXEL_SIZE)));
+  
+  if (newViewportX !== viewportX || newViewportY !== viewportY) {
+    setViewportX(newViewportX);
+    setViewportY(newViewportY);
+  }
+  
+  setLastMousePos({ x: touch.clientX, y: touch.clientY });
+};
+
   const handleTouchEnd = () => {
     setIsDragging(false);
   };
@@ -1292,53 +1293,53 @@ const getPixelOwner = (x: number, y: number) => {
               </div>
             </div>
           )}
-          {/* Chunk loading progress indicator */}
-          {isLoadingChunks && !isInitialLoad && loadingProgress.total > 0 && (
-            <div className="absolute top-20 right-4 bg-black bg-opacity-80 text-white text-xs px-4 py-3 rounded-lg z-10 min-w-[200px]">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="animate-spin">⚡</span>
-                <span>Loading...</span>
-              </div>
-              <div className="w-full bg-gray-700 rounded-full h-2 mb-1">
-                <div 
-                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                  style={{ 
-                    width: `${(loadingProgress.current / loadingProgress.total) * 100}%` 
-                  }}
-                ></div>
-              </div>
-              <div className="text-center text-gray-300">
+{/* Chunk loading progress indicator */}
+{isLoadingChunks && !isInitialLoad && loadingProgress.total > 0 && (
+  <div className="absolute top-20 right-4 bg-black bg-opacity-80 text-white text-xs px-4 py-3 rounded-lg z-10 min-w-[200px]">
+    <div className="flex items-center gap-2 mb-2">
+      <span className="animate-spin">⚡</span>
+      <span>Loading...</span>
+    </div>
+    <div className="w-full bg-gray-700 rounded-full h-2 mb-1">
+      <div 
+        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+        style={{ 
+          width: `${(loadingProgress.current / loadingProgress.total) * 100}%` 
+        }}
+      ></div>
+    </div>
+    <div className="text-center text-gray-300">
 
-                ({Math.round((loadingProgress.current / loadingProgress.total) * 100)}%)
-              </div>
-            </div>
-          )}
+      ({Math.round((loadingProgress.current / loadingProgress.total) * 100)}%)
+    </div>
+  </div>
+)}
 
           {/* Direct pixel grid - fills entire screen */}
           <div 
-            className="absolute inset-0 flex items-center justify-center"
-          >
-          <div 
-            className="absolute inset-0 grid"
-            style={{ 
-              gridTemplateColumns: `repeat(${viewportSize}, 1fr)`,
-              gridTemplateRows: `repeat(${viewportSize}, 1fr)`,
-              gap: '1px',
-              padding: '1px',
-              width: '100vw',
-              height: '100vh',
-              minWidth: '100vw', // Ensure minimum full width
-              minHeight: '100vh', // Ensure minimum full height
-            }}
-          >
+  className="absolute inset-0 flex items-center justify-center"
+>
+<div 
+  className="absolute inset-0 grid"
+  style={{ 
+    gridTemplateColumns: `repeat(${viewportSize}, 1fr)`,
+    gridTemplateRows: `repeat(${viewportSize}, 1fr)`,
+    gap: '1px',
+    padding: '1px',
+    width: '100vw',
+    height: '100vh',
+    minWidth: '100vw', // Ensure minimum full width
+    minHeight: '100vh', // Ensure minimum full height
+  }}
+>
 
-        {memoizedPixelGrid.map(({ i, globalX, globalY }) => {
-          // Skip if outside canvas bounds, but render empty space
-          if (globalX >= CANVAS_WIDTH || globalY >= CANVAS_HEIGHT || globalX < 0 || globalY < 0) {
-            return (
-              <div key={i} className="bg-gray-300 opacity-50" />
-            );
-          }
+          {memoizedPixelGrid.map(({ i, globalX, globalY }) => {
+            // Skip if outside canvas bounds
+            if (globalX >= CANVAS_WIDTH || globalY >= CANVAS_HEIGHT) {
+              return (
+                <div key={i} className="bg-gray-300" />
+              );
+            }
               
             const isSelected = selectedPixel?.[0] === globalX && selectedPixel?.[1] === globalY;
             const isHighlighted = highlightedPixel?.[0] === globalX && highlightedPixel?.[1] === globalY;
