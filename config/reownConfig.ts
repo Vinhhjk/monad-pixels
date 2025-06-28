@@ -18,7 +18,11 @@ export const wallet_wagmiAdapter = new WagmiAdapter({
     networks: [monadTestnet],
     features:{
       email: false,
-      socials: []
+      socials: [],
+      onramp: false,
+      swaps: false,
+      history: false,
+      send: true
     }
   });
 

@@ -106,13 +106,19 @@ contract TestPixelNFT20 is ERC721, Ownable {
     
     function updateColor(uint256 x, uint256 y, string memory color) external {
         uint256 tokenId = _getTokenId(x, y);
-        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        address owner = ownerOf(tokenId);
+        require(
+            owner == msg.sender || 
+            getApproved(tokenId) == msg.sender ||
+            isApprovedForAll(owner, msg.sender), 
+            "Not authorized to update this pixel"
+        );
         
         // Validate and normalize color
         string memory validColor = _validateAndNormalizeColor(color);
         pixelColors[tokenId] = validColor;
         
-        emit ColorUpdated(tokenId, x, y, validColor, msg.sender);
+        emit ColorUpdated(tokenId, x, y, validColor, owner);
     }
     
     function batchUpdateColor(uint256[] memory x, uint256[] memory y, string[] memory colors) external {
@@ -121,13 +127,19 @@ contract TestPixelNFT20 is ERC721, Ownable {
         
         for (uint256 i = 0; i < x.length; i++) {
             uint256 tokenId = _getTokenId(x[i], y[i]);
-            require(ownerOf(tokenId) == msg.sender, "Not the owner");
+            address owner = ownerOf(tokenId);
+            require(
+                owner == msg.sender || 
+                getApproved(tokenId) == msg.sender ||
+                isApprovedForAll(owner, msg.sender), 
+                "Not authorized to update pixel"
+            );
             
             // Validate and normalize color
             string memory validColor = _validateAndNormalizeColor(colors[i]);
             pixelColors[tokenId] = validColor;
             
-            emit ColorUpdated(tokenId, x[i], y[i], validColor, msg.sender);
+            emit ColorUpdated(tokenId, x[i], y[i], validColor, owner);
         }
     }
 
@@ -183,6 +195,82 @@ contract TestPixelNFT20 is ERC721, Ownable {
         }
         
         return (tokenIds, owners, colors);
+    }
+
+    // Delegation Functions
+    
+    /**
+     * @dev Approve multiple pixels at once for delegation
+     * @param x Array of X coordinates
+     * @param y Array of Y coordinates  
+     * @param to Address to approve for all pixels
+     */
+    function batchApprove(uint256[] memory x, uint256[] memory y, address to) external {
+        require(x.length == y.length, "Arrays length mismatch");
+        require(x.length > 0, "Empty arrays");
+        require(to != address(0), "Cannot approve zero address");
+        
+        for (uint256 i = 0; i < x.length; i++) {
+            uint256 tokenId = _getTokenId(x[i], y[i]);
+            require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
+            
+            // Use the inherited approve function
+            approve(to, tokenId);
+        }
+    }
+    
+    /**
+     * @dev Approve a single pixel by coordinates for delegation
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param to Address to approve
+     */
+    function approvePixel(uint256 x, uint256 y, address to) external {
+        uint256 tokenId = _getTokenId(x, y);
+        require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
+        
+        approve(to, tokenId);
+    }
+    
+    /**
+     * @dev Approve multiple pixels to multiple addresses in a single transaction
+     * @param x Array of X coordinates
+     * @param y Array of Y coordinates  
+     * @param operators Array of addresses to approve for all pixels
+     */
+    function batchApproveMultipleAddresses(uint256[] memory x, uint256[] memory y, address[] memory operators) external {
+        require(x.length == y.length, "Coordinates arrays length mismatch");
+        require(x.length > 0, "Empty coordinates arrays");
+        require(operators.length > 0, "Empty operators array");
+        
+        // Approve each pixel to each operator
+        for (uint256 i = 0; i < x.length; i++) {
+            uint256 tokenId = _getTokenId(x[i], y[i]);
+            require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
+            
+            for (uint256 j = 0; j < operators.length; j++) {
+                require(operators[j] != address(0), "Cannot approve zero address");
+                // Use the inherited approve function for each operator
+                approve(operators[j], tokenId);
+            }
+        }
+    }
+
+    /**
+     * @dev Check if an address is authorized to update a pixel
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param operator Address to check authorization for
+     * @return True if authorized to update the pixel
+     */
+    function isPixelAuthorized(uint256 x, uint256 y, address operator) external view returns (bool) {
+        uint256 tokenId = _getTokenId(x, y);
+        if (!_exists(tokenId)) return false;
+        
+        address owner = ownerOf(tokenId);
+        return owner == operator || 
+               getApproved(tokenId) == operator ||
+               isApprovedForAll(owner, operator);
     }
 
     function _exists(uint256 tokenId) internal view returns (bool) {
@@ -596,6 +684,7 @@ contract TestPixelNFT20 is ERC721, Ownable {
                             '"description": "A pixel on the onchain canvas.",',
                             '"image": "data:image/svg+xml;base64,', Base64.encode(bytes(svg)), '",',
                             '"attributes": [',
+                                '{"trait_type": "X", "value": ', x, '},',  // Missing!
                                 '{"trait_type": "Y", "value": ', y, '},',
                                 '{"trait_type": "Color", "value": "', color, '"}',
                             ']'

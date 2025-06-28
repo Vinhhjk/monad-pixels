@@ -3,7 +3,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
-import {wallet_wagmiAdapter} from '@/config/index';
+import {wallet_wagmiAdapter} from '@/config/reownConfig';
 
 const queryClient = new QueryClient();
 

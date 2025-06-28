@@ -11,7 +11,7 @@ const MIN_VIEWPORT_SIZE = 10; // Minimum zoom (most zoomed in)
 const MAX_VIEWPORT_SIZE =100; // Maximum zoom (most zoomed out)
 const PIXEL_SIZE = 8; // Base pixel size in pixels
 
-const CONTRACT_ADDRESS = "0x1737AD0258085a8AC4259E5d42F3866fec873a0A";
+const CONTRACT_ADDRESS = "0xd001f83b75ffA5Cd7D2ffdC8bda1A45A963f4dCE";
 const EXPLORER_BASE_URL = "https://testnet.monadexplorer.com/tx/"; 
 
 interface PixelData {
@@ -43,6 +43,8 @@ export default function Home() {
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
   const [showInstructions, setShowInstructions] = useState(true);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [lastTouchDistance, setLastTouchDistance] = useState(0);
+  const [isPinching, setIsPinching] = useState(false);
   const [showPositionInput, setShowPositionInput] = useState(false);
   const [customHexColor, setCustomHexColor] = useState('');
   const [showHexInput, setShowHexInput] = useState(false);
@@ -60,7 +62,7 @@ export default function Home() {
   // Track transaction hashes and the pixel being processed
   const [pendingTxHash, setPendingTxHash] = useState<`0x${string}` | null>(null);
   const [pendingTxPixel, setPendingTxPixel] = useState<[number, number] | null>(null);
-  const [pendingTxType, setPendingTxType] = useState<'mint' | 'update' | 'batch' | 'compose' | null>(null); 
+  const [pendingTxType, setPendingTxType] = useState<'mint' | 'update' | 'batch' | 'compose' | 'delegation' | null>(null); 
   const [pendingBatchSize, setPendingBatchSize] = useState(0);
   const [eventWatchingEnabled, setEventWatchingEnabled] = useState(false);
   const [isDrawMode, setIsDrawMode] = useState(false);
@@ -70,6 +72,34 @@ export default function Home() {
   const [highlightedPixel, setHighlightedPixel] = useState<[number, number] | null>(null);
   const [totalMinted, setTotalMinted] = useState(0);
   const [screenSize, setScreenSize] = useState({ width: 1024, height: 768 });
+  
+  // Delegation state
+  const [isDelegateMode, setIsDelegateMode] = useState(false);
+  const [delegateAddress, setDelegateAddress] = useState('');
+  const [delegateAddresses, setDelegateAddresses] = useState<string[]>([]);
+  const [isMultiAddressMode, setIsMultiAddressMode] = useState(false);
+
+  const [showDelegateInput, setShowDelegateInput] = useState(false);
+  const [isDelegating, setIsDelegating] = useState(false);
+  const [isBatchDelegate, setIsBatchDelegate] = useState(false);
+  
+  // Delegation area selection state
+  const [delegateAreaStart, setDelegateAreaStart] = useState<[number, number] | null>(null);
+  const [isDelegateAreaDragging, setIsDelegateAreaDragging] = useState(false);
+  const [delegateSelectedArea, setDelegateSelectedArea] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  
+  // Authorization checking state for batch updates
+  const [isCheckingAuth, setIsCheckingAuth] = useState(false);
+  const [authResults, setAuthResults] = useState<{authorized: number; unauthorized: number} | null>(null);
+  
+  // Authorization state for selected pixel
+  const [pixelAuthStatus, setPixelAuthStatus] = useState<{
+    x: number;
+    y: number;
+    isOwner: boolean;
+    isAuthorized: boolean;
+    isChecking: boolean;
+  } | null>(null);
   
   // Area selection and composition
   const [isAreaSelectMode, setIsAreaSelectMode] = useState(false);
@@ -310,6 +340,24 @@ export default function Home() {
       } else if (pendingTxType === 'compose') {
         // Add success notification for composition
         addNotification('success', 'Composition Complete!', `Successfully composed ${pendingBatchSize} pixels into NFT!`, pendingTxHash);
+      } else if (pendingTxType === 'delegation') {
+        // Add success notification for delegation and auto-close delegation mode
+        addNotification('success', 'Delegation Complete!', `Successfully delegated ${pendingBatchSize} pixels!`, pendingTxHash);
+        
+        // Auto-close delegation mode after successful delegation
+        setTimeout(() => {
+          setIsDelegateMode(false);
+          setIsBatchDelegate(false);
+          setDelegateAddress('');
+          setDelegateAddresses([]);
+          setIsMultiAddressMode(false);
+          setShowDelegateInput(false);
+          setDrawnPixels(new Map());
+          setSelectedPixel(null);
+          setDelegateSelectedArea(null);
+          setDelegateAreaStart(null);
+          setIsDelegateAreaDragging(false);
+        }, 1000); // 1 second delay so user can see the success message
       } else if (pendingTxPixel) {
         const [x, y] = pendingTxPixel;
         if (pendingTxType === 'mint') {
@@ -777,10 +825,10 @@ export default function Home() {
   
 
 // Update your pixel checking functions:
-const isPixelMinted = (x: number, y: number) => {
+const isPixelMinted = useCallback((x: number, y: number) => {
   const key = `${x}-${y}`;
   return pixelData[key]?.isMinted || false;
-};
+}, [pixelData]);
 
 const getPixelColor = (x: number, y: number) => {
   const key = `${x}-${y}`;
@@ -791,7 +839,7 @@ const getPixelColor = (x: number, y: number) => {
     return pixel.color;
   }
   
-  // Handle draw mode and selection preview for unminted pixels
+  // Handle Batch Mode and selection preview for unminted pixels
   if (isDrawMode && drawnPixels.has(key)) {
     return drawnPixels.get(key) || selectedColor;
   }
@@ -804,15 +852,17 @@ const getPixelColor = (x: number, y: number) => {
   return '#ffffff';
 };
 
-const getPixelOwner = (x: number, y: number) => {
+const getPixelOwner = useCallback((x: number, y: number) => {
   const key = `${x}-${y}`;
   return pixelData[key]?.owner || null;
-};
+}, [pixelData]);
   useEffect(() => {
     if (publicClient) {
       loadVisiblePixels();
     }
   }, [publicClient, loadVisiblePixels]);
+
+
   
 
   // Enable event watching after initial load
@@ -826,15 +876,17 @@ const getPixelOwner = (x: number, y: number) => {
     }
   }, [isConnected, publicClient]);
 
-  // Zoom functions
-  const handleZoomIn = useCallback(() => {
+  // Zoom functions with mouse position support
+  const handleZoomIn = useCallback((mouseWorldX?: number, mouseWorldY?: number) => {
     const newSize = Math.max(MIN_VIEWPORT_SIZE, viewportSize - 5);
     if (newSize !== viewportSize) {
       setViewportSize(newSize);
-      const centerX = viewportX + viewportSize / 2;
-      const centerY = viewportY + viewportSize / 2;
       
-      // Keep the center point, but ensure we don't go outside canvas
+      // Use mouse position if provided, otherwise use center
+      const centerX = mouseWorldX ?? (viewportX + viewportSize / 2);
+      const centerY = mouseWorldY ?? (viewportY + viewportSize / 2);
+      
+      // Keep the center point (or mouse point), but ensure we don't go outside canvas
       const newViewportX = Math.max(0, Math.min(CANVAS_WIDTH - newSize, centerX - newSize / 2));
       const newViewportY = Math.max(0, Math.min(CANVAS_HEIGHT - newSize, centerY - newSize / 2));
       
@@ -843,13 +895,14 @@ const getPixelOwner = (x: number, y: number) => {
     }
   }, [viewportSize, viewportX, viewportY]);
   
-  const handleZoomOut = useCallback(() => {
+  const handleZoomOut = useCallback((mouseWorldX?: number, mouseWorldY?: number) => {
     const newSize = Math.min(MAX_VIEWPORT_SIZE, viewportSize + 5);
     if (newSize !== viewportSize) {
       setViewportSize(newSize);
       
-      const centerX = viewportX + viewportSize / 2;
-      const centerY = viewportY + viewportSize / 2;
+      // Use mouse position if provided, otherwise use center
+      const centerX = mouseWorldX ?? (viewportX + viewportSize / 2);
+      const centerY = mouseWorldY ?? (viewportY + viewportSize / 2);
       
       // When zooming out, adjust viewport to show as much canvas as possible
       let newViewportX = centerX - newSize / 2;
@@ -874,23 +927,32 @@ const getPixelOwner = (x: number, y: number) => {
   
   
 
-  // Handle mouse wheel for zooming
+  // Handle mouse wheel for zooming with mouse position
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     e.stopPropagation();
     
+    // Get mouse position relative to canvas
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Convert mouse position to world coordinates
+    const worldMouseX = viewportX + (mouseX / PIXEL_SIZE);
+    const worldMouseY = viewportY + (mouseY / PIXEL_SIZE);
+    
     // More sensitive zoom detection
     if (e.deltaY < -10) { // Scroll up = zoom in
-      handleZoomIn();
+      handleZoomIn(worldMouseX, worldMouseY);
     } else if (e.deltaY > 10) { // Scroll down = zoom out
-      handleZoomOut();
+      handleZoomOut(worldMouseX, worldMouseY);
     }
     
     if (!hasInteracted) {
       setHasInteracted(true);
       setTimeout(() => setShowInstructions(false), 1000);
     }
-  }, [hasInteracted, handleZoomIn, handleZoomOut]);
+  }, [hasInteracted, handleZoomIn, handleZoomOut, viewportX, viewportY]);
   // Mouse handlers with reduced sensitivity
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDraggingCanvas(true);
@@ -938,6 +1000,22 @@ const getPixelOwner = (x: number, y: number) => {
     
     if (isAreaSelectMode) {
       handleAreaSelection(x, y);
+    } else if (isDelegateMode) {
+      // Handle delegation mode
+      if (isBatchDelegate) {
+        // In batch delegate mode, use area selection for drag selection
+        handleDelegateAreaSelection(x, y);
+      } else {
+        // Single pixel delegation
+        if (canUpdatePixel(x, y)) {
+          if (!showDelegateInput) {
+            setSelectedPixel([x, y]);
+            setShowDelegateInput(true);
+          }
+        } else {
+          addNotification('error', 'Not Owner', 'You can only delegate pixels you own');
+        }
+      }
     } else if (isDrawMode) {
       const key = `${x}-${y}`;
       if (drawnPixels.has(key)) {
@@ -953,6 +1031,69 @@ const getPixelOwner = (x: number, y: number) => {
   const handlePixelHover = (x: number, y: number) => {
     if (isAreaSelectMode) {
       handleAreaSelectionMove(x, y);
+    } else if (isDelegateMode && isBatchDelegate && isDelegateAreaDragging) {
+      handleDelegateAreaMove(x, y);
+    }
+  };
+
+  // Delegation area selection handlers
+  const handleDelegateAreaSelection = (x: number, y: number) => {
+    if (!isDelegateAreaDragging) {
+      // Start new selection
+      setDelegateAreaStart([x, y]);
+      setIsDelegateAreaDragging(true);
+      setDelegateSelectedArea({ startX: x, startY: x, endX: x, endY: y });
+    } else {
+      // Finish selection
+      setIsDelegateAreaDragging(false);
+      if (delegateAreaStart) {
+        const [startX, startY] = delegateAreaStart;
+        const finalArea = {
+          startX: Math.min(startX, x),
+          startY: Math.min(startY, y),
+          endX: Math.max(startX, x),
+          endY: Math.max(startY, y)
+        };
+        setDelegateSelectedArea(finalArea);
+        
+        // Auto-select owned pixels in the area
+        selectOwnedPixelsInArea(finalArea);
+      }
+    }
+  };
+
+  const handleDelegateAreaMove = (x: number, y: number) => {
+    if (isDelegateAreaDragging && delegateAreaStart) {
+      const [startX, startY] = delegateAreaStart;
+      setDelegateSelectedArea({
+        startX: Math.min(startX, x),
+        startY: Math.min(startY, y),
+        endX: Math.max(startX, x),
+        endY: Math.max(startY, y)
+      });
+    }
+  };
+
+  const selectOwnedPixelsInArea = (area: {startX: number, startY: number, endX: number, endY: number}) => {
+    const newDrawnPixels = new Map<string, string>();
+    let ownedCount = 0;
+    
+    for (let y = area.startY; y <= area.endY; y++) {
+      for (let x = area.startX; x <= area.endX; x++) {
+        if (canUpdatePixel(x, y)) {
+          const key = `${x}-${y}`;
+          newDrawnPixels.set(key, '#4F46E5'); // Blue color for delegation
+          ownedCount++;
+        }
+      }
+    }
+    
+    setDrawnPixels(newDrawnPixels);
+    
+    if (ownedCount > 0) {
+      addNotification('info', 'Pixels Selected', `Selected ${ownedCount} owned pixels for delegation`);
+    } else {
+      addNotification('info', 'No Owned Pixels', 'No pixels you own were found in the selected area');
     }
   };
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -997,6 +1138,57 @@ const getPixelOwner = (x: number, y: number) => {
   };
   const handleTouchEnd = () => {
     setIsDraggingCanvas(false);
+    setIsPinching(false);
+    setLastTouchDistance(0);
+  };
+
+  // Helper function to calculate distance between two touches
+  const getTouchDistance = (touch1: React.Touch, touch2: React.Touch) => {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // Handle pinch-to-zoom gestures
+  const handleTouchStartPinch = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const distance = getTouchDistance(e.touches[0], e.touches[1]);
+      setLastTouchDistance(distance);
+      setIsPinching(true);
+      setIsDraggingCanvas(false); // Stop dragging when pinching
+    } else if (e.touches.length === 1) {
+      handleTouchStart(e);
+    }
+  };
+
+  const handleTouchMovePinch = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && isPinching) {
+      e.preventDefault();
+      const distance = getTouchDistance(e.touches[0], e.touches[1]);
+      
+      if (lastTouchDistance > 0) {
+        const deltaDistance = distance - lastTouchDistance;
+        
+        if (Math.abs(deltaDistance) > 5) { // Minimum distance change threshold
+          if (deltaDistance > 0) {
+            // Pinch out = zoom in
+            handleZoomIn();
+          } else {
+            // Pinch in = zoom out
+            handleZoomOut();
+          }
+        }
+      }
+      
+      setLastTouchDistance(distance);
+      
+      if (!hasInteracted) {
+        setHasInteracted(true);
+        setTimeout(() => setShowInstructions(false), 1000);
+      }
+    } else if (e.touches.length === 1 && !isPinching) {
+      handleTouchMove(e);
+    }
   };
   const mintPixel = async (x: number, y: number) => {
     if (!isConnected || !address) return;
@@ -1103,11 +1295,16 @@ const getPixelOwner = (x: number, y: number) => {
   const toggleDrawMode = () => {
     setIsDrawMode(!isDrawMode);
     if (!isDrawMode) {
-      // Entering draw mode - clear selected pixel to avoid confusion
+      // Entering Batch Mode - clear selected pixel and other modes
       setSelectedPixel(null);
-      // Clear drawn pixels when exiting draw mode is already handled below
+      setIsDelegateMode(false);
+      setShowDelegateInput(false);
+      setIsAreaSelectMode(false);
+      setSelectedArea(null);
+      setAreaSelectionStart(null);
+      setIsAreaDragging(false);
     } else {
-      // Exiting draw mode - clear drawn pixels
+      // Exiting Batch Mode - clear drawn pixels
       setDrawnPixels(new Map());
     }
   };
@@ -1117,13 +1314,12 @@ const getPixelOwner = (x: number, y: number) => {
     const key = `${x}-${y}`;
     const isMinted = isPixelMinted(x, y);
     const isPending = isPixelPending(x, y);
-    const canUpdate = canUpdatePixel(x, y);
     
     // Allow adding if:
     // 1. Pixel is unminted and not pending (for minting)
-    // 2. Pixel is minted and owned by user (for updating)
-    // Don't allow if pending or owned by someone else
-    if (!isPending && ((!isMinted) || (isMinted && canUpdate))) {
+    // 2. Pixel is minted (we'll check delegation during batch operation)
+    // Don't allow if pending
+    if (!isPending && ((!isMinted) || isMinted)) {
       setDrawnPixels(prev => {
         const newMap = new Map(prev);
         newMap.set(key, selectedColor); // Store the current selected color
@@ -1133,8 +1329,6 @@ const getPixelOwner = (x: number, y: number) => {
       // Optional: Show a notification for why pixel can't be added
       if (isPending) {
         addNotification('info', 'Pixel Pending', `Pixel (${x}, ${y}) has a pending transaction`);
-      } else if (isMinted && !canUpdate) {
-        addNotification('info', 'Not Your Pixel', `Pixel (${x}, ${y}) is owned by someone else`);
       }
     }
   };
@@ -1193,18 +1387,21 @@ const getPixelOwner = (x: number, y: number) => {
           args: [BigInt(selectedArea.startX), BigInt(selectedArea.startY), BigInt(selectedArea.endX), BigInt(selectedArea.endY), address],
         }) as bigint[];
         ownedCount = ownedPixels.length;
-      } catch {
+      } catch (error) {
         // getOwnedPixelsInArea not available, we'll count manually
+        console.log('Contract method failed, counting manually:', error);
         ownedCount = 0;
         for (let y = selectedArea.startY; y <= selectedArea.endY; y++) {
           for (let x = selectedArea.startX; x <= selectedArea.endX; x++) {
             const key = `${x}-${y}`;
             const pixel = pixelData[key];
-            if (pixel?.isMinted && pixel?.owner === address) {
+            if (pixel?.isMinted && pixel?.owner?.toLowerCase() === address?.toLowerCase()) {
+              console.log(`Found owned pixel at (${x}, ${y}):`, pixel);
               ownedCount++;
             }
           }
         }
+        console.log(`Manual count: ${ownedCount} owned pixels`);
       }
 
       // Simple validation logic
@@ -1366,16 +1563,42 @@ const getPixelOwner = (x: number, y: number) => {
   };
   
   const batchUpdatePixels = async () => {
-    if (!isConnected || !address || drawnPixels.size === 0) return;
+    if (!isConnected || !address || drawnPixels.size === 0 || !authResults || authResults.authorized === 0) return;
     
-    // Filter to only include pixels that are minted and owned by the user
-    const pixelArray = Array.from(drawnPixels.entries()).filter(([key]) => {
+    // Get authorized pixels only (we already checked authorization)
+    const pixelArray: [string, string][] = [];
+    
+    for (const [key, color] of drawnPixels.entries()) {
       const [x, y] = key.split('-').map(Number);
-      return isPixelMinted(x, y) && canUpdatePixel(x, y) && !isPixelPending(x, y);
-    });
+      const pixelIsPending = pendingMints.has(key) || pendingUpdates.has(key);
+      
+      if (!isPixelMinted(x, y) || pixelIsPending) continue;
+      
+      // Check if user owns the pixel or is authorized
+      if (canUpdatePixel(x, y)) {
+        pixelArray.push([key, color]);
+        continue;
+      }
+      
+      // Check delegation (we know some are authorized from authResults)
+      try {
+        const isAuthorized = await publicClient?.readContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: PXNFT_ABI,
+          functionName: 'isPixelAuthorized',
+          args: [BigInt(x), BigInt(y), address as `0x${string}`],
+        }) as boolean;
+        
+        if (isAuthorized) {
+          pixelArray.push([key, color]);
+        }
+      } catch (error) {
+        console.error(`Error checking authorization for pixel (${x}, ${y}):`, error);
+      }
+    }
     
     if (pixelArray.length === 0) {
-      addNotification('error', 'No Valid Pixels', 'No owned pixels selected for update');
+      addNotification('error', 'No Valid Pixels', 'No authorized pixels found');
       return;
     }
     
@@ -1414,7 +1637,7 @@ const getPixelOwner = (x: number, y: number) => {
       console.error("Error batch updating pixels:", error);
       addNotification('error', 'Batch Update Failed', 'Failed to submit batch update transaction');
       // Remove from pending updates on error
-      pixelArray.forEach(([key]: [string, string]) => {
+      pixelArray.forEach(([key]) => {
         setPendingUpdates(prev => {
           const newSet = new Set(prev);
           newSet.delete(key);
@@ -1426,12 +1649,367 @@ const getPixelOwner = (x: number, y: number) => {
     }
   };
   
+  // Delegation functions
+  const delegatePixel = async (x: number, y: number, toAddress: string) => {
+    if (!isConnected || !address) {
+      addNotification('error', 'Not Connected', 'Please connect your wallet first');
+      return;
+    }
 
-  const canUpdatePixel = (x: number, y: number) => {
-    if (!isConnected || !address) return false;
-    const owner = getPixelOwner(x, y);
-    return owner && owner.toLowerCase() === address.toLowerCase();
+    // Validate address
+    if (!toAddress || toAddress.length !== 42 || !toAddress.startsWith('0x')) {
+      addNotification('error', 'Invalid Address', 'Please enter a valid Ethereum address');
+      return;
+    }
+
+    const pixelOwner = getPixelOwner(x, y);
+    if (!pixelOwner || pixelOwner.toLowerCase() !== address.toLowerCase()) {
+      addNotification('error', 'Not Owner', 'You do not own this pixel');
+      return;
+    }
+
+    setIsDelegating(true);
+
+    try {
+      const hash = await writeContractAsync({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: PXNFT_ABI,
+        functionName: 'approvePixel',
+        args: [BigInt(x), BigInt(y), toAddress as `0x${string}`],
+      });
+
+      setPendingTxHash(hash);
+      setPendingTxPixel([x, y]);
+      setPendingTxType('delegation');
+
+      addNotification('info', 'Delegation Submitted', `Delegating pixel (${x}, ${y}) to ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`, hash);
+      
+    } catch (error: Error | unknown) {
+      console.error('Error delegating pixel:', error);
+      const errorMessage = (error as Error)?.message?.includes('User rejected') 
+        ? 'Transaction rejected by user' 
+        : 'Failed to delegate pixel';
+      addNotification('error', 'Delegation Failed', errorMessage);
+    } finally {
+      setIsDelegating(false);
+    }
   };
+
+  // Multi-address delegation - fallback to multiple transactions until contract is updated
+  const batchDelegatePixelsMultiSingleTx = async (pixels: Array<[number, number]>, toAddresses: string[]) => {
+    if (!isConnected || !address) {
+      addNotification('error', 'Not Connected', 'Please connect your wallet first');
+      return;
+    }
+
+    if (toAddresses.length === 0) {
+      addNotification('error', 'No Addresses', 'Please enter at least one address');
+      return;
+    }
+
+    // Validate all addresses
+    for (const addr of toAddresses) {
+      if (!addr || addr.length !== 42 || !addr.startsWith('0x')) {
+        addNotification('error', 'Invalid Address', `Invalid address: ${addr}`);
+        return;
+      }
+    }
+
+    if (pixels.length === 0) {
+      addNotification('error', 'No Pixels', 'Please select pixels to delegate');
+      return;
+    }
+
+    // Check ownership of all pixels
+    for (const [x, y] of pixels) {
+      const pixelOwner = getPixelOwner(x, y);
+      if (!pixelOwner || pixelOwner.toLowerCase() !== address.toLowerCase()) {
+        addNotification('error', 'Not Owner', `You do not own pixel (${x}, ${y})`);
+        return;
+      }
+    }
+
+    setIsDelegating(true);
+
+    try {
+      const xCoords = pixels.map(([x]) => BigInt(x));
+      const yCoords = pixels.map(([, y]) => BigInt(y));
+      
+      // Try the new single-transaction function first
+      try {
+        const operators = toAddresses.map(addr => addr as `0x${string}`);
+        
+        addNotification('info', 'Single Transaction Multi-Delegation', `Approving ${pixels.length} pixels to ${toAddresses.length} addresses in one transaction...`);
+        
+        const hash = await writeContractAsync({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: PXNFT_ABI,
+          functionName: 'batchApproveMultipleAddresses',
+          args: [xCoords, yCoords, operators],
+        });
+
+        setPendingTxHash(hash);
+        setPendingTxType('delegation');
+        setPendingBatchSize(pixels.length * toAddresses.length);
+
+        addNotification('success', 'Multi-Delegation Submitted', `Single transaction: ${pixels.length} pixels → ${toAddresses.length} addresses`, hash);
+        
+      } catch (contractError) {
+        console.log('New contract function not available, falling back to multiple transactions:', contractError);
+        
+        // Fallback to multiple transactions
+        addNotification('info', 'Multi-Delegation Fallback', `Using multiple transactions for ${toAddresses.length} addresses...`);
+        
+        let lastHash: `0x${string}` | undefined;
+        
+        for (let i = 0; i < toAddresses.length; i++) {
+          const toAddress = toAddresses[i];
+          
+          const hash = await writeContractAsync({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: PXNFT_ABI,
+            functionName: 'batchApprove',
+            args: [xCoords, yCoords, toAddress as `0x${string}`],
+          });
+
+          lastHash = hash;
+          addNotification('info', `Delegation ${i + 1}/${toAddresses.length}`, `Approved for ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`, hash);
+        }
+
+        if (lastHash) {
+          setPendingTxHash(lastHash);
+          setPendingTxType('delegation');
+          setPendingBatchSize(pixels.length * toAddresses.length);
+        }
+      }
+      
+    } catch (error: Error | unknown) {
+      console.error('Error multi-delegating:', error);
+      const errorMessage = (error as Error)?.message?.includes('User rejected') 
+        ? 'Transaction rejected by user' 
+        : 'Failed to delegate pixels';
+      addNotification('error', 'Multi-Delegation Failed', errorMessage);
+    } finally {
+      setIsDelegating(false);
+    }
+  };
+
+
+
+  const batchDelegatePixels = async (pixels: Array<[number, number]>, toAddress: string) => {
+    if (!isConnected || !address) {
+      addNotification('error', 'Not Connected', 'Please connect your wallet first');
+      return;
+    }
+
+    if (!toAddress || toAddress.length !== 42 || !toAddress.startsWith('0x')) {
+      addNotification('error', 'Invalid Address', 'Please enter a valid Ethereum address');
+      return;
+    }
+
+    if (pixels.length === 0) {
+      addNotification('error', 'No Pixels', 'Please select pixels to delegate');
+      return;
+    }
+
+    // Check ownership of all pixels
+    for (const [x, y] of pixels) {
+      const pixelOwner = getPixelOwner(x, y);
+      if (!pixelOwner || pixelOwner.toLowerCase() !== address.toLowerCase()) {
+        addNotification('error', 'Not Owner', `You do not own pixel (${x}, ${y})`);
+        return;
+      }
+    }
+
+    setIsDelegating(true);
+
+    try {
+      const xCoords = pixels.map(([x]) => BigInt(x));
+      const yCoords = pixels.map(([, y]) => BigInt(y));
+
+      const hash = await writeContractAsync({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: PXNFT_ABI,
+        functionName: 'batchApprove',
+        args: [xCoords, yCoords, toAddress as `0x${string}`],
+      });
+
+      setPendingTxHash(hash);
+      setPendingBatchSize(pixels.length);
+      setPendingTxType('delegation');
+
+      addNotification('info', 'Batch Delegation Submitted', `Delegating ${pixels.length} pixels to ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`, hash);
+      
+    } catch (error: Error | unknown) {
+      console.error('Error batch delegating pixels:', error);
+      const errorMessage = (error as Error)?.message?.includes('User rejected') 
+        ? 'Transaction rejected by user' 
+        : 'Failed to delegate pixels';
+      addNotification('error', 'Batch Delegation Failed', errorMessage);
+    } finally {
+      setIsDelegating(false);
+    }
+  };
+
+  const canUpdatePixel = useCallback((x: number, y: number) => {
+    if (!isConnected || !address) return false;
+    const key = `${x}-${y}`;
+    const owner = pixelData[key]?.owner || null;
+    return owner && owner.toLowerCase() === address.toLowerCase();
+  }, [isConnected, address, pixelData]);
+
+  // Memoize drawn pixels keys to only trigger auth check when they actually change
+  const drawnPixelKeys = useMemo(() => {
+    return Array.from(drawnPixels.keys());
+  }, [drawnPixels]);
+
+  // Check authorization for all drawn pixels
+  const checkBatchAuthorization = useCallback(async () => {
+    if (!isConnected || !address || !publicClient || drawnPixelKeys.length === 0) {
+      setAuthResults(null);
+      return;
+    }
+
+    setIsCheckingAuth(true);
+    
+    const candidatePixels: string[] = [];
+    for (const key of drawnPixelKeys) {
+      // Access pixelData directly
+      const pixelIsMinted = pixelData[key]?.isMinted || false;
+      const pixelIsPending = pendingMints.has(key) || pendingUpdates.has(key);
+      
+      if (pixelIsMinted && !pixelIsPending) {
+        candidatePixels.push(key);
+      }
+    }
+
+    if (candidatePixels.length === 0) {
+      setAuthResults(null);
+      setIsCheckingAuth(false);
+      return;
+    }
+
+    let authorized = 0;
+    let unauthorized = 0;
+
+    for (const key of candidatePixels) {
+      const [x, y] = key.split('-').map(Number);
+      
+      // Check if user owns the pixel (access pixelData directly)
+      const owner = pixelData[key]?.owner || null;
+      const isOwner = owner && owner.toLowerCase() === address?.toLowerCase();
+      if (isOwner) {
+        authorized++;
+        continue;
+      }
+      
+      // Check delegation
+      try {
+        const isAuthorized = await publicClient.readContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: PXNFT_ABI,
+          functionName: 'isPixelAuthorized',
+          args: [BigInt(x), BigInt(y), address as `0x${string}`],
+        }) as boolean;
+        
+        if (isAuthorized) {
+          authorized++;
+        } else {
+          unauthorized++;
+        }
+      } catch (error) {
+        console.error(`Error checking authorization for pixel (${x}, ${y}):`, error);
+        unauthorized++;
+      }
+    }
+
+    setAuthResults({ authorized, unauthorized });
+    setIsCheckingAuth(false);
+  }, [isConnected, address, publicClient, drawnPixelKeys, pendingMints, pendingUpdates]);
+
+  // Check authorization whenever drawn pixels change
+  useEffect(() => {
+    if (isDrawMode && drawnPixelKeys.length > 0) {
+      const timeoutId = setTimeout(() => {
+        checkBatchAuthorization();
+      }, 500); // Debounce to avoid too many calls
+      
+      return () => clearTimeout(timeoutId);
+    } else {
+      setAuthResults(null);
+    }
+  }, [isDrawMode, drawnPixelKeys, checkBatchAuthorization]);
+
+
+
+
+
+
+
+  // Check authorization when pixel is selected (only on pixel selection change)
+  useEffect(() => {
+    if (!selectedPixel || !isConnected || !publicClient || !address) {
+      setPixelAuthStatus(null);
+      return;
+    }
+
+    const [x, y] = selectedPixel;
+    
+    // Check if user owns the pixel (get current data at the time of selection)
+    const key = `${x}-${y}`;
+    const owner = pixelData[key]?.owner || null;
+    const isOwner = owner && owner.toLowerCase() === address.toLowerCase();
+    
+    // Set initial state
+    setPixelAuthStatus({
+      x,
+      y,
+      isOwner: Boolean(isOwner),
+      isAuthorized: Boolean(isOwner), // Owner is always authorized
+      isChecking: !Boolean(isOwner) // Only check contract if not owner
+    });
+
+    // If not owner, check delegation
+    if (!isOwner) {
+      const checkDelegation = async () => {
+        try {
+          const isAuthorized = await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: PXNFT_ABI,
+            functionName: 'isPixelAuthorized',
+            args: [BigInt(x), BigInt(y), address as `0x${string}`],
+          }) as boolean;
+          
+          // Only update if this is still the selected pixel
+          setPixelAuthStatus(prev => {
+            if (prev && prev.x === x && prev.y === y) {
+              return {
+                ...prev,
+                isAuthorized,
+                isChecking: false
+              };
+            }
+            return prev;
+          });
+        } catch (error) {
+          console.error('Error checking pixel authorization:', error);
+          setPixelAuthStatus(prev => {
+            if (prev && prev.x === x && prev.y === y) {
+              return {
+                ...prev,
+                isAuthorized: false,
+                isChecking: false
+              };
+            }
+            return prev;
+          });
+        }
+      };
+
+      checkDelegation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPixel, isConnected, publicClient, address]); // Removed pixelData dependency to prevent infinite refresh
 
   const isPixelPending = (x: number, y: number) => {
     const key = `${x}-${y}`;
@@ -1491,7 +2069,7 @@ const getPixelOwner = (x: number, y: number) => {
             </div>
             
             {/* Right side controls */}
-            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+            <div className="relative flex items-center gap-1 sm:gap-2 flex-wrap">
               {/* Position Input - Hide on very small screens */}
               {showPositionInput ? (
                 <div className="flex items-center gap-1 bg-gray-800 rounded-lg px-1 sm:px-2 py-1">
@@ -1542,7 +2120,7 @@ const getPixelOwner = (x: number, y: number) => {
                 </button>
               )}
 
-              {/* Draw Mode Button */}
+              {/* Batch Mode Button */}
               <button
                 onClick={toggleDrawMode}
                 className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm transition-colors ${
@@ -1550,7 +2128,7 @@ const getPixelOwner = (x: number, y: number) => {
                     ? 'bg-orange-600 hover:bg-orange-500 text-white' 
                     : 'bg-gray-700 hover:bg-gray-600 text-white'
                 }`}
-                title={isDrawMode ? "Exit Draw Mode" : "Enter Draw Mode"}
+                title={isDrawMode ? "Exit Batch Mode" : "Enter Batch Mode"}
               >
                 {isDrawMode ? '🎨' : '✏️'}
               </button>
@@ -1564,6 +2142,8 @@ const getPixelOwner = (x: number, y: number) => {
                     setIsDrawMode(false);
                     setSelectedPixel(null);
                     setDrawnPixels(new Map());
+                    setIsDelegateMode(false);
+                    setShowDelegateInput(false);
                   } else {
                     // Exiting area select mode - clear selections
                     setSelectedArea(null);
@@ -1581,7 +2161,41 @@ const getPixelOwner = (x: number, y: number) => {
                 {isAreaSelectMode ? '🔲' : '□'}
               </button>
 
-              {/* Draw Mode Controls - Stack on mobile */}
+              {/* Delegate Mode Button */}
+              <button
+                onClick={() => {
+                  setIsDelegateMode(!isDelegateMode);
+                  if (!isDelegateMode) {
+                    // Entering delegate mode - clear other modes
+                    setIsDrawMode(false);
+                    setIsAreaSelectMode(false);
+                    setSelectedPixel(null);
+                    setDrawnPixels(new Map());
+                    setSelectedArea(null);
+                    setAreaSelectionStart(null);
+                    setIsAreaDragging(false);
+                  } else {
+                    // Exiting delegate mode - clear delegate selections
+                    setShowDelegateInput(false);
+                    setDelegateAddress('');
+                    setIsBatchDelegate(false);
+                    setDelegateSelectedArea(null);
+                    setDelegateAreaStart(null);
+                    setIsDelegateAreaDragging(false);
+                  }
+                }}
+                className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm transition-colors ${
+                  isDelegateMode 
+                    ? 'bg-blue-600 hover:bg-blue-500 text-white' 
+                    : 'bg-gray-700 hover:bg-gray-600 text-white'
+                }`}
+                title={isDelegateMode ? "Exit Delegate Mode" : "Enter Delegate Mode"}
+                disabled={!isConnected}
+              >
+                {isDelegateMode ? '👥' : '🤝'}
+              </button>
+
+              {/* Batch Mode Controls - Stack on mobile */}
               {isDrawMode && drawnPixels.size > 0 && (() => {
                 const drawnPixelArray = Array.from(drawnPixels.keys());
                 
@@ -1654,12 +2268,205 @@ const getPixelOwner = (x: number, y: number) => {
                 );
               })()}
 
+              {/* Delegate Mode Controls */}
+              {isDelegateMode && (
+                <div className="absolute top-full right-0 mt-2 flex flex-col gap-2 bg-blue-800 rounded-lg px-2 py-2 shadow-lg z-50 min-w-[280px]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-blue-200">Delegate Mode</span>
+                    <button
+                      onClick={() => {
+                        const newBatchMode = !isBatchDelegate;
+                        setIsBatchDelegate(newBatchMode);
+                        setDrawnPixels(new Map());
+                        setSelectedPixel(null);
+                        setShowDelegateInput(false);
+                        setDelegateSelectedArea(null);
+                        setDelegateAreaStart(null);
+                        setIsDelegateAreaDragging(false);
+                        
+                        if (newBatchMode) {
+                          addNotification('info', 'Batch Delegation Mode', 'Click and drag to select an area, or click individual pixels');
+                        } else {
+                          addNotification('info', 'Single Delegation Mode', 'Click an owned pixel to delegate it to a friend');
+                        }
+                      }}
+                      className={`px-2 py-1 rounded text-xs transition-colors ${
+                        isBatchDelegate 
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white' 
+                          : 'bg-gray-700 hover:bg-gray-600 text-white'
+                      }`}
+                      title={isBatchDelegate ? "Switch to Single Delegate" : "Switch to Batch Delegate"}
+                    >
+                      {isBatchDelegate ? '📦 Batch' : '📦 Single'}
+                    </button>
+                  </div>
+                  
+                  {/* Address Input Mode Toggle */}
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <button
+                      onClick={() => setIsMultiAddressMode(!isMultiAddressMode)}
+                      className={`px-2 py-1 rounded text-xs transition-colors ${
+                        isMultiAddressMode 
+                          ? 'bg-purple-600 hover:bg-purple-500 text-white' 
+                          : 'bg-gray-700 hover:bg-gray-600 text-white'
+                      }`}
+                    >
+                      {isMultiAddressMode ? '📋 Multi-Address' : '📋 Single Address'}
+                    </button>
+                    
 
+                  </div>
+
+                  {/* Address Input */}
+                  <div className="flex flex-col gap-1">
+                    {isMultiAddressMode ? (
+                      <div className="space-y-1">
+                        <textarea
+                          placeholder="Enter addresses (one per line or paste multiple)&#10;0x123...&#10;0x456..."
+                          value={delegateAddresses.join('\n')}
+                          onChange={(e) => {
+                            const input = e.target.value;
+                            // First try splitting by line breaks
+                            let addresses = input.split('\n').filter(addr => addr.trim());
+                            
+                            // If only one line but looks like multiple addresses concatenated
+                            if (addresses.length === 1 && addresses[0].length > 42) {
+                              // Split by "0x" and rebuild addresses
+                              const parts = addresses[0].split('0x').filter(part => part.length > 0);
+                              addresses = parts.map(part => '0x' + part.substring(0, 40)).filter(addr => addr.length === 42);
+                            }
+                            
+                            setDelegateAddresses(addresses);
+                          }}
+                          className="bg-gray-700 text-white px-2 py-1 rounded text-xs border border-gray-600 focus:border-blue-400 focus:outline-none resize-none h-20"
+                          rows={4}
+                        />
+                        <div className="text-xs text-blue-200">
+                          {delegateAddresses.length} address{delegateAddresses.length !== 1 ? 'es' : ''} entered
+                        </div>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="Friend's address (0x...)"
+                        value={delegateAddress}
+                        onChange={(e) => setDelegateAddress(e.target.value)}
+                        className="bg-gray-700 text-white px-2 py-1 rounded text-xs border border-gray-600 focus:border-blue-400 focus:outline-none"
+                      />
+                    )}
+                  </div>
+                  
+                  {/* Batch delegate controls */}
+                  {isBatchDelegate && drawnPixels.size > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-blue-200">
+                        {drawnPixels.size} pixels selected
+                      </span>
+                      <button
+                        onClick={() => {
+                          const pixels = Array.from(drawnPixels.keys()).map(key => {
+                            const [x, y] = key.split('-').map(Number);
+                            return [x, y] as [number, number];
+                          });
+
+                          if (isMultiAddressMode) {
+                            if (delegateAddresses.length > 0) {
+                              batchDelegatePixelsMultiSingleTx(pixels, delegateAddresses);
+                            } else {
+                              addNotification('error', 'Missing Addresses', 'Please enter at least one address');
+                            }
+                          } else {
+                            if (delegateAddress) {
+                              batchDelegatePixels(pixels, delegateAddress);
+                            } else {
+                              addNotification('error', 'Missing Address', 'Please enter friend\'s address');
+                            }
+                          }
+                        }}
+                        className="bg-green-600 hover:bg-green-500 text-white px-2 py-1 rounded text-xs transition-colors"
+                        disabled={isDelegating || (!delegateAddress && !isMultiAddressMode) || (isMultiAddressMode && delegateAddresses.length === 0)}
+                      >
+                        {isDelegating ? '⏳' : isMultiAddressMode ? `Delegate to ${delegateAddresses.length}` : `Delegate ${drawnPixels.size}`}
+                      </button>
+                      <button
+                        onClick={() => setDrawnPixels(new Map())}
+                        className="bg-red-600 hover:bg-red-500 text-white px-1 py-1 rounded text-xs transition-colors"
+                        title="Clear Selection"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Single delegate control */}
+                  {!isBatchDelegate && selectedPixel && showDelegateInput && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-blue-200">
+                        Pixel ({selectedPixel[0]}, {selectedPixel[1]})
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (selectedPixel) {
+                            if (isMultiAddressMode) {
+                              if (delegateAddresses.length > 0) {
+                                batchDelegatePixelsMultiSingleTx([selectedPixel], delegateAddresses);
+                              } else {
+                                addNotification('error', 'Missing Addresses', 'Please enter at least one address');
+                              }
+                            } else {
+                              if (delegateAddress) {
+                                delegatePixel(selectedPixel[0], selectedPixel[1], delegateAddress);
+                              } else {
+                                addNotification('error', 'Missing Address', 'Please enter friend\'s address');
+                              }
+                            }
+                            setShowDelegateInput(false);
+                            setSelectedPixel(null);
+                          }
+                        }}
+                        className="bg-green-600 hover:bg-green-500 text-white px-2 py-1 rounded text-xs transition-colors"
+                        disabled={isDelegating || (!delegateAddress && !isMultiAddressMode) || (isMultiAddressMode && delegateAddresses.length === 0)}
+                      >
+                        {isDelegating ? '⏳' : isMultiAddressMode ? `Delegate to ${delegateAddresses.length}` : 'Delegate'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowDelegateInput(false);
+                          setSelectedPixel(null);
+                        }}
+                        className="bg-red-600 hover:bg-red-500 text-white px-1 py-1 rounded text-xs transition-colors"
+                        title="Cancel"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                  
+                  {isBatchDelegate && (
+                    <div className="text-xs text-blue-300 bg-blue-900 bg-opacity-30 p-2 rounded">
+                      <div className="font-medium mb-1">📦 Batch Delegation Mode Active</div>
+                      <div>• Click and drag to select an area of pixels</div>
+                      <div>• Only your owned pixels will be selected (highlighted in blue)</div>
+                      <div>• {isMultiAddressMode ? 'Enter multiple addresses (one per line) to delegate to all' : 'Enter friend\'s address and click "Delegate" to approve all'}</div>
+                      <div>• {isMultiAddressMode ? 'Multi-address mode: all pixels will be delegated to ALL entered addresses in one transaction' : 'Single-address mode: all pixels will be delegated to ONE address'}</div>
+                    </div>
+                  )}
+                  
+                  {!isBatchDelegate && !showDelegateInput && (
+                    <div className="text-xs text-blue-300 bg-blue-900 bg-opacity-30 p-2 rounded">
+                      <div className="font-medium mb-1">🤝 Single Delegation Mode</div>
+                      <div>• Click an owned pixel to delegate it to a friend</div>
+                      <div>• {isMultiAddressMode ? 'Enter multiple addresses to delegate to all' : 'Enter friend\'s address to approve access'}</div>
+                      <div>• {isMultiAddressMode ? 'Multi-address mode: pixel will be delegated to ALL entered addresses' : 'Single-address mode: pixel will be delegated to ONE address'}</div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Zoom Controls - Compact on mobile */}
               <div className="flex items-center gap-1 bg-gray-800 rounded-lg px-1 sm:px-2 py-1">
                 <button 
-                  onClick={handleZoomIn}
+                  onClick={() => handleZoomIn()}
                   className="bg-gray-700 hover:bg-gray-600 text-white px-1 sm:px-2 py-1 rounded text-xs sm:text-sm transition-colors"
                   disabled={viewportSize <= MIN_VIEWPORT_SIZE}
                   title="Zoom In"
@@ -1670,7 +2477,7 @@ const getPixelOwner = (x: number, y: number) => {
                   {zoomPercentage}%
                 </span>
                 <button 
-                  onClick={handleZoomOut}
+                  onClick={() => handleZoomOut()}
                   className="bg-gray-700 hover:bg-gray-600 text-white px-1 sm:px-2 py-1 rounded text-xs sm:text-sm transition-colors"
                   disabled={viewportSize >= MAX_VIEWPORT_SIZE}
                   title="Zoom Out"
@@ -1713,7 +2520,7 @@ const getPixelOwner = (x: number, y: number) => {
         <div 
           className="absolute inset-0 bg-gray-100 select-none"
           style={{ 
-            cursor: isDraggingCanvas ? 'grabbing' : 'grab',
+            cursor: isDraggingCanvas ? 'grabbing' : 'default',
             touchAction: 'none' // Prevent default touch behaviors
           }}
           onMouseDown={handleMouseDown}
@@ -1721,8 +2528,8 @@ const getPixelOwner = (x: number, y: number) => {
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           onWheel={handleWheel}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
+          onTouchStart={handleTouchStartPinch}
+          onTouchMove={handleTouchMovePinch}
           onTouchEnd={handleTouchEnd}
         >
           {/* Loading overlay */}
@@ -1814,13 +2621,21 @@ const getPixelOwner = (x: number, y: number) => {
                   const pixelColor = getPixelColor(globalX, globalY);
                   const isDrawn = isDrawMode && drawnPixels.has(`${globalX}-${globalY}`);
                   
-                  // Check if pixel is in selected area
+                  // Check if pixel is in selected area (composition)
                   const isInSelectedArea = selectedArea && 
                     globalX >= selectedArea.startX && globalX <= selectedArea.endX &&
                     globalY >= selectedArea.startY && globalY <= selectedArea.endY;
                   
-                  // Check if pixel is owned by user in the selected area
+                  // Check if pixel is owned by user in the selected area (composition)
                   const isOwnedInArea = isInSelectedArea && ownedPixelsInArea.includes(getTokenId(globalX, globalY));
+                  
+                  // Check if pixel is in delegation area selection
+                  const isInDelegateArea = delegateSelectedArea && 
+                    globalX >= delegateSelectedArea.startX && globalX <= delegateSelectedArea.endX &&
+                    globalY >= delegateSelectedArea.startY && globalY <= delegateSelectedArea.endY;
+                  
+                  // Check if pixel is owned and selected for delegation
+                  const isOwnedForDelegation = isInDelegateArea && canUpdatePixel(globalX, globalY);
                   
                   // Determine border style based on state
                   let borderStyle = 'none';
@@ -1828,6 +2643,10 @@ const getPixelOwner = (x: number, y: number) => {
                     borderStyle = '2px solid #f59e0b';
                   } else if (isSelected) {
                     borderStyle = '2px solid #3b82f6';
+                  } else if (isOwnedForDelegation) {
+                    borderStyle = '2px solid #4F46E5'; // Blue for owned pixels in delegation area
+                  } else if (isInDelegateArea) {
+                    borderStyle = '2px solid #6B7280'; // Gray for delegation area selection
                   } else if (isOwnedInArea) {
                     borderStyle = '2px solid #10b981'; // Green for owned pixels in area
                   } else if (isInSelectedArea) {
@@ -1845,6 +2664,7 @@ const getPixelOwner = (x: number, y: number) => {
                         ${isPending ? "animate-pulse" : ""}
                         ${isDrawn ? "ring-2 ring-orange-400" : ""} 
                         ${isHighlighted ? "animate-bounce" : ""}
+                        ${isOwnedForDelegation ? "ring-2 ring-blue-500" : isInDelegateArea ? "ring-2 ring-gray-400" : ""}
                         ${isOwnedInArea ? "ring-2 ring-green-400" : isInSelectedArea ? "ring-2 ring-purple-400" : ""}
                       `}
                       style={{ 
@@ -2132,7 +2952,7 @@ const getPixelOwner = (x: number, y: number) => {
                 )}
                 
                 <div className="space-y-3">
-                  {/* Show batch mint info when in draw mode without selected pixel */}
+                  {/* Show batch mint info when in Batch Mode without selected pixel */}
                   {!selectedPixel && isDrawMode && drawnPixels.size > 0 && (
                     <>
                       <div className="flex items-center gap-2">
@@ -2207,143 +3027,165 @@ const getPixelOwner = (x: number, y: number) => {
 
                   {isConnected ? (
                     <div className="pt-2 space-y-2">
-                      {/* Batch mint button when no specific pixel is selected but pixels are drawn */}
-{/* Batch mode info when no specific pixel is selected but pixels are drawn */}
-{!selectedPixel && isDrawMode && drawnPixels.size > 0 && (() => {
-  const drawnPixelArray = Array.from(drawnPixels.keys());
-  
-  const unmintedPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return !isPixelMinted(x, y) && !isPixelPending(x, y);
-  });
-  
-  const ownedPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return isPixelMinted(x, y) && canUpdatePixel(x, y) && !isPixelPending(x, y);
-  });
+                      {/* Batch mode info when no specific pixel is selected but pixels are drawn */}
+                      {!selectedPixel && isDrawMode && drawnPixels.size > 0 && (() => {
+                        const drawnPixelArray = Array.from(drawnPixels.keys());
+                        
+                        const unmintedPixels = drawnPixelArray.filter(key => {
+                          const [x, y] = key.split('-').map(Number);
+                          return !isPixelMinted(x, y) && !isPixelPending(x, y);
+                        });
+                        
+                        const ownedPixels = drawnPixelArray.filter(key => {
+                          const [x, y] = key.split('-').map(Number);
+                          return isPixelMinted(x, y) && canUpdatePixel(x, y) && !isPixelPending(x, y);
+                        });
 
-  const pendingPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return isPixelPending(x, y);
-  });
+                        const pendingPixels = drawnPixelArray.filter(key => {
+                          const [x, y] = key.split('-').map(Number);
+                          return isPixelPending(x, y);
+                        });
 
-  const otherPixels = drawnPixelArray.filter(key => {
-    const [x, y] = key.split('-').map(Number);
-    return isPixelMinted(x, y) && !canUpdatePixel(x, y) && !isPixelPending(x, y);
-  });
+                        // For minted pixels that user doesn't own, show as "potentially updatable" 
+                        // since they might have delegation (checked during actual update)
+                        const mintedNotOwnedPixels = drawnPixelArray.filter(key => {
+                          const [x, y] = key.split('-').map(Number);
+                          return isPixelMinted(x, y) && !canUpdatePixel(x, y) && !isPixelPending(x, y);
+                        });
 
-  return (
-    <>
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
-        <span className="text-orange-400 font-medium">Batch Mode - {drawnPixels.size} pixels selected</span>
-      </div>
-      
-      {/* Breakdown of selected pixels */}
-      <div className="space-y-2 mb-4">
-        {unmintedPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-green-500 rounded"></div>
-            <span className="text-green-400">{unmintedPixels.length} unminted (ready to mint)</span>
-          </div>
-        )}
-        {ownedPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-blue-500 rounded"></div>
-            <span className="text-blue-400">{ownedPixels.length} owned (ready to update)</span>
-          </div>
-        )}
-        {pendingPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-orange-500 rounded animate-pulse"></div>
-            <span className="text-orange-400">{pendingPixels.length} pending transactions</span>
-          </div>
-        )}
-        {otherPixels.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-3 h-3 bg-gray-500 rounded"></div>
-            <span className="text-gray-400">{otherPixels.length} owned by others</span>
-          </div>
-        )}
-      </div>
-      
-      <div className="flex items-center gap-2 p-2 bg-gray-800 rounded mb-4">
-        <span className="text-sm text-gray-400">Selected color:</span>
-        <div 
-          className="w-6 h-6 border border-gray-600 rounded"
-          style={{ backgroundColor: selectedColor }}
-        ></div>
-        <span className="text-xs text-gray-300 font-mono">{selectedColor}</span>
-      </div>
-      
-      <div className="space-y-2">
-        {/* Batch Mint Button */}
-        {unmintedPixels.length > 0 && (
-          <button 
-            className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-            onClick={batchMintPixels}
-            disabled={isBatchMinting || isBatchUpdating}
-          >
-            {isBatchMinting ? (
-              <>
-                <span className="animate-spin">⏳</span>
-                Minting {unmintedPixels.length} pixels...
-              </>
-            ) : (
-              <>
-                <span>⚡</span>
-                Mint {unmintedPixels.length} Pixels
-              </>
-            )}
-          </button>
-        )}
-        
-        {/* Batch Update Button */}
-        {ownedPixels.length > 0 && (
-          <button 
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-            onClick={batchUpdatePixels}
-            disabled={isBatchMinting || isBatchUpdating}
-          >
-            {isBatchUpdating ? (
-              <>
-                <span className="animate-spin">⏳</span>
-                Updating {ownedPixels.length} pixels...
-              </>
-            ) : (
-              <>
-                <span>🎨</span>
-                Update {ownedPixels.length} Pixels
-              </>
-            )}
-          </button>
-        )}
-        
-        <button 
-          className="w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-          onClick={clearDrawing}
-          disabled={isBatchMinting || isBatchUpdating}
-        >
-          <span>🗑️</span>
-          Clear Selection
-        </button>
-        
-        <button 
-          className="w-full bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
-          onClick={toggleDrawMode}
-          disabled={isBatchMinting || isBatchUpdating}
-        >
-          <span>✏️</span>
-          Exit Draw Mode
-        </button>
-      </div>
-      
-      <div className="text-xs text-gray-400 bg-gray-800 p-2 rounded mt-4">
-        💡 <strong>Tip:</strong> Click pixels on canvas to add/remove them. Green pixels will be minted, blue pixels will be updated with your selected color.
-      </div>
-    </>
-  );
-})()}
+                        // Total updateable pixels = owned + potentially delegated
+                        const totalUpdateablePixels = ownedPixels.length + mintedNotOwnedPixels.length;
+
+                        return (
+                          <>
+                            <div className="flex items-center gap-2 mb-4">
+                              <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
+                              <span className="text-orange-400 font-medium">Batch Mode - {drawnPixels.size} pixels selected</span>
+                            </div>
+                            
+                            {/* Breakdown of selected pixels */}
+                            <div className="space-y-2 mb-4">
+                              {unmintedPixels.length > 0 && (
+                                <div className="flex items-center gap-2 text-sm">
+                                  <div className="w-3 h-3 bg-green-500 rounded"></div>
+                                  <span className="text-green-400">{unmintedPixels.length} unminted (ready to mint)</span>
+                                </div>
+                              )}
+
+                              {ownedPixels.length > 0 && (
+                                <div className="flex items-center gap-2 text-sm">
+                                  <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                                  <span className="text-blue-400">{ownedPixels.length} owned (ready to update)</span>
+                                </div>
+                              )}
+                              {mintedNotOwnedPixels.length > 0 && (
+                                <div className="flex items-center gap-2 text-sm">
+                                  <div className="w-3 h-3 bg-purple-500 rounded"></div>
+                                  <span className="text-purple-400">{mintedNotOwnedPixels.length} minted (check delegation)</span>
+                                </div>
+                              )}
+                              {pendingPixels.length > 0 && (
+                                <div className="flex items-center gap-2 text-sm">
+                                  <div className="w-3 h-3 bg-orange-500 rounded animate-pulse"></div>
+                                  <span className="text-orange-400">{pendingPixels.length} pending transactions</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex items-center gap-2 p-2 bg-gray-800 rounded mb-4">
+                              <span className="text-sm text-gray-400">Selected color:</span>
+                              <div 
+                                className="w-6 h-6 border border-gray-600 rounded"
+                                style={{ backgroundColor: selectedColor }}
+                              ></div>
+                              <span className="text-xs text-gray-300 font-mono">{selectedColor}</span>
+                            </div>
+                            
+                            <div className="space-y-2">
+                              {/* Batch Mint Button */}
+                              {unmintedPixels.length > 0 && (
+                                <button 
+                                  className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                                  onClick={batchMintPixels}
+                                  disabled={isBatchMinting || isBatchUpdating}
+                                >
+                                  {isBatchMinting ? (
+                                    <>
+                                      <span className="animate-spin">⏳</span>
+                                      Minting {unmintedPixels.length} pixels...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span>⚡</span>
+                                      Mint {unmintedPixels.length} Pixels
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              
+                              {/* Batch Update Button */}
+                              {totalUpdateablePixels > 0 && (
+                                <button 
+                                  className={`w-full px-4 py-3 rounded-lg transition-colors font-medium flex items-center justify-center gap-2 ${
+                                    isCheckingAuth 
+                                      ? 'bg-yellow-600 cursor-wait' 
+                                      : authResults && authResults.authorized > 0
+                                        ? 'bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white'
+                                        : 'bg-red-600 cursor-not-allowed text-white'
+                                  }`}
+                                  onClick={batchUpdatePixels}
+                                  disabled={isBatchMinting || isBatchUpdating || isCheckingAuth || !authResults || authResults.authorized === 0}
+                                >
+                                  {isBatchUpdating ? (
+                                    <>
+                                      <span className="animate-spin">⏳</span>
+                                      Updating {authResults?.authorized || 0} pixels...
+                                    </>
+                                  ) : isCheckingAuth ? (
+                                    <>
+                                      <span className="animate-spin">🔍</span>
+                                      Checking Authorization...
+                                    </>
+                                  ) : authResults && authResults.authorized > 0 ? (
+                                    <>
+                                      <span>🎨</span>
+                                      Update {authResults.authorized} Pixel{authResults.authorized > 1 ? 's' : ''}
+                                      {authResults.unauthorized > 0 && ` (${authResults.unauthorized} not authorized)`}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span>🚫</span>
+                                      Not Authorized to Update
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              
+                              <button 
+                                className="w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                                onClick={clearDrawing}
+                                disabled={isBatchMinting || isBatchUpdating}
+                              >
+                                <span>🗑️</span>
+                                Clear Selection
+                              </button>
+                              
+                              <button 
+                                className="w-full bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2" 
+                                onClick={toggleDrawMode}
+                                disabled={isBatchMinting || isBatchUpdating}
+                              >
+                                <span>✏️</span>
+                                Exit Batch Mode
+                              </button>
+                            </div>
+                            
+                            <div className="text-xs text-gray-400 bg-gray-800 p-2 rounded mt-4">
+                              💡 <strong>Tip:</strong> Click pixels on canvas to add/remove them. Green pixels will be minted, blue pixels will be updated with your selected color.
+                            </div>
+                          </>
+                        );
+                      })()}
 
 
                       {/* Single pixel buttons when a pixel is selected */}
@@ -2406,9 +3248,56 @@ const getPixelOwner = (x: number, y: number) => {
                               )}
                             </button>
                           ) : (
-                            <div className="text-center p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded-lg">
-                              <p className="text-red-400 text-sm">You don&lsquo;t own this pixel</p>
-                            </div>
+                            <>
+                              {/* Check if user is authorized (including delegation) */}
+                              {pixelAuthStatus?.x === selectedPixel[0] && pixelAuthStatus?.y === selectedPixel[1] && (
+                                <>
+                                  {pixelAuthStatus.isChecking ? (
+                                    <div className="text-center p-3 bg-blue-900 bg-opacity-30 border border-blue-600 rounded-lg">
+                                      <div className="flex items-center justify-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                                        <p className="text-blue-400 text-sm">Checking delegation...</p>
+                                      </div>
+                                    </div>
+                                  ) : pixelAuthStatus.isAuthorized ? (
+                                    <button
+                                      onClick={() => updatePixel(selectedPixel[0], selectedPixel[1])}
+                                      className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                      disabled={isMinting}
+                                    >
+                                      {isMinting ? (
+                                        <>
+                                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                          Updating...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span>🎨</span>
+                                          Update Color {pixelAuthStatus.isOwner ? '' : '(Delegated)'}
+                                        </>
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      <div className="text-center p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded-lg">
+                                        <p className="text-red-400 text-sm">You don&apos;t have permission to update this pixel</p>
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          // Re-trigger authorization check by re-selecting the pixel
+                                          const currentPixel = selectedPixel;
+                                          setSelectedPixel(null);
+                                          setTimeout(() => setSelectedPixel(currentPixel), 100);
+                                        }}
+                                        className="w-full bg-gray-600 hover:bg-gray-500 text-white text-sm py-2 px-3 rounded transition-colors"
+                                      >
+                                        🔄 Check Again
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </>
                           )}
                         </>
                       )}
@@ -2460,7 +3349,7 @@ const getPixelOwner = (x: number, y: number) => {
       )}
 
       {/* Notification Container section */}
-      <div className="fixed top-20 right-4 z-50 space-y-2 pointer-events-none">
+      <div className={`fixed ${isDelegateMode ? 'bottom-4 right-4' : 'top-20 right-4'} z-50 space-y-2 pointer-events-none`}>
         {notifications.map((notification) => (
           <div
             key={notification.id}

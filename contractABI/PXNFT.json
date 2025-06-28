@@ -1,186 +1,5 @@
 [
 	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "compositeId",
-				"type": "uint256"
-			}
-		],
-		"name": "decomposePixels",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "x",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "y",
-				"type": "uint256"
-			},
-			{
-				"internalType": "string",
-				"name": "color",
-				"type": "string"
-			}
-		],
-		"name": "mint",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "refreshCollectionMetadata",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "renounceOwnership",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "from",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "to",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "tokenId",
-				"type": "uint256"
-			}
-		],
-		"name": "safeTransferFrom",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "from",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "to",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "tokenId",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bytes",
-				"name": "data",
-				"type": "bytes"
-			}
-		],
-		"name": "safeTransferFrom",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "operator",
-				"type": "address"
-			},
-			{
-				"internalType": "bool",
-				"name": "approved",
-				"type": "bool"
-			}
-		],
-		"name": "setApprovalForAll",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "string",
-				"name": "_description",
-				"type": "string"
-			}
-		],
-		"name": "setCollectionDescription",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "string",
-				"name": "_url",
-				"type": "string"
-			}
-		],
-		"name": "setExternalUrl",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "from",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "to",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "tokenId",
-				"type": "uint256"
-			}
-		],
-		"name": "transferFrom",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "newOwner",
-				"type": "address"
-			}
-		],
-		"name": "transferOwnership",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
 		"inputs": [],
 		"stateMutability": "nonpayable",
 		"type": "constructor"
@@ -377,24 +196,6 @@
 		"type": "event"
 	},
 	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "to",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "tokenId",
-				"type": "uint256"
-			}
-		],
-		"name": "approve",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
 		"anonymous": false,
 		"inputs": [
 			{
@@ -412,52 +213,6 @@
 		],
 		"name": "BatchMetadataUpdate",
 		"type": "event"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256[]",
-				"name": "x",
-				"type": "uint256[]"
-			},
-			{
-				"internalType": "uint256[]",
-				"name": "y",
-				"type": "uint256[]"
-			},
-			{
-				"internalType": "string[]",
-				"name": "colors",
-				"type": "string[]"
-			}
-		],
-		"name": "batchMint",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256[]",
-				"name": "x",
-				"type": "uint256[]"
-			},
-			{
-				"internalType": "uint256[]",
-				"name": "y",
-				"type": "uint256[]"
-			},
-			{
-				"internalType": "string[]",
-				"name": "colors",
-				"type": "string[]"
-			}
-		],
-		"name": "batchUpdateColor",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
 	},
 	{
 		"anonymous": false,
@@ -495,34 +250,6 @@
 		],
 		"name": "ColorUpdated",
 		"type": "event"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "startX",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "startY",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "endX",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "endY",
-				"type": "uint256"
-			}
-		],
-		"name": "composePixels",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
 	},
 	{
 		"anonymous": false,
@@ -632,26 +359,42 @@
 		"type": "event"
 	},
 	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "x",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "y",
-				"type": "uint256"
-			},
+		"inputs": [],
+		"name": "DEFAULT_COLOR",
+		"outputs": [
 			{
 				"internalType": "string",
-				"name": "color",
+				"name": "",
 				"type": "string"
 			}
 		],
-		"name": "updateColor",
-		"outputs": [],
-		"stateMutability": "nonpayable",
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "HEIGHT",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "WIDTH",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
 		"type": "function"
 	},
 	{
@@ -682,6 +425,47 @@
 		"inputs": [
 			{
 				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "tokenId",
+				"type": "uint256"
+			}
+		],
+		"name": "approve",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "x",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "y",
+				"type": "uint256"
+			},
+			{
+				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			}
+		],
+		"name": "approvePixel",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
 				"name": "owner",
 				"type": "address"
 			}
@@ -695,6 +479,98 @@
 			}
 		],
 		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256[]",
+				"name": "x",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "uint256[]",
+				"name": "y",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			}
+		],
+		"name": "batchApprove",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256[]",
+				"name": "x",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "uint256[]",
+				"name": "y",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "address[]",
+				"name": "operators",
+				"type": "address[]"
+			}
+		],
+		"name": "batchApproveMultipleAddresses",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256[]",
+				"name": "x",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "uint256[]",
+				"name": "y",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "string[]",
+				"name": "colors",
+				"type": "string[]"
+			}
+		],
+		"name": "batchMint",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256[]",
+				"name": "x",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "uint256[]",
+				"name": "y",
+				"type": "uint256[]"
+			},
+			{
+				"internalType": "string[]",
+				"name": "colors",
+				"type": "string[]"
+			}
+		],
+		"name": "batchUpdateColor",
+		"outputs": [],
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
@@ -763,6 +639,34 @@
 		"inputs": [
 			{
 				"internalType": "uint256",
+				"name": "startX",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "startY",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "endX",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "endY",
+				"type": "uint256"
+			}
+		],
+		"name": "composePixels",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
 				"name": "",
 				"type": "uint256"
 			},
@@ -816,16 +720,16 @@
 		"type": "function"
 	},
 	{
-		"inputs": [],
-		"name": "DEFAULT_COLOR",
-		"outputs": [
+		"inputs": [
 			{
-				"internalType": "string",
-				"name": "",
-				"type": "string"
+				"internalType": "uint256",
+				"name": "compositeId",
+				"type": "uint256"
 			}
 		],
-		"stateMutability": "view",
+		"name": "decomposePixels",
+		"outputs": [],
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
@@ -1093,19 +997,6 @@
 		"type": "function"
 	},
 	{
-		"inputs": [],
-		"name": "HEIGHT",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
 		"inputs": [
 			{
 				"internalType": "address",
@@ -1146,6 +1037,58 @@
 			}
 		],
 		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "x",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "y",
+				"type": "uint256"
+			},
+			{
+				"internalType": "address",
+				"name": "operator",
+				"type": "address"
+			}
+		],
+		"name": "isPixelAuthorized",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "x",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "y",
+				"type": "uint256"
+			},
+			{
+				"internalType": "string",
+				"name": "color",
+				"type": "string"
+			}
+		],
+		"name": "mint",
+		"outputs": [],
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
@@ -1213,6 +1156,115 @@
 		"type": "function"
 	},
 	{
+		"inputs": [],
+		"name": "refreshCollectionMetadata",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "renounceOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "from",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "tokenId",
+				"type": "uint256"
+			}
+		],
+		"name": "safeTransferFrom",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "from",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "tokenId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes",
+				"name": "data",
+				"type": "bytes"
+			}
+		],
+		"name": "safeTransferFrom",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "operator",
+				"type": "address"
+			},
+			{
+				"internalType": "bool",
+				"name": "approved",
+				"type": "bool"
+			}
+		],
+		"name": "setApprovalForAll",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_description",
+				"type": "string"
+			}
+		],
+		"name": "setCollectionDescription",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_url",
+				"type": "string"
+			}
+		],
+		"name": "setExternalUrl",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
 		"inputs": [
 			{
 				"internalType": "bytes4",
@@ -1277,16 +1329,62 @@
 		"type": "function"
 	},
 	{
-		"inputs": [],
-		"name": "WIDTH",
-		"outputs": [
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "from",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			},
 			{
 				"internalType": "uint256",
-				"name": "",
+				"name": "tokenId",
 				"type": "uint256"
 			}
 		],
-		"stateMutability": "view",
+		"name": "transferFrom",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "newOwner",
+				"type": "address"
+			}
+		],
+		"name": "transferOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "x",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "y",
+				"type": "uint256"
+			},
+			{
+				"internalType": "string",
+				"name": "color",
+				"type": "string"
+			}
+		],
+		"name": "updateColor",
+		"outputs": [],
+		"stateMutability": "nonpayable",
 		"type": "function"
 	}
 ]
