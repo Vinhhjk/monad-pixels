@@ -236,7 +236,7 @@ function NFTViewerContent() {
   };
 
   useEffect(() => {
-    const tokenIdFromUrl = searchParams.get("tokenId");
+    const tokenIdFromUrl = searchParams?.get("tokenId");
     if (tokenIdFromUrl && publicClient) {
       setTokenId(tokenIdFromUrl);
       setSectionsCollapsed(true); // Collapse sections when viewing an NFT

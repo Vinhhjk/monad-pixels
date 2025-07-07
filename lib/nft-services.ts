@@ -5,7 +5,6 @@ import type { Abi } from "viem";
 const CONTRACT_ADDRESS = "0xE2948e08947430068C99d99d457a243d7Dc978cb";
 
 // Magic Eden API configuration
-const MAGIC_EDEN_BASE_URL = "https://api-mainnet.magiceden.dev/v3/rtp/monad-testnet";
 const MAGIC_EDEN_API_KEY = process.env.NEXT_PUBLIC_MAGIC_EDEN_API_KEY;
 
 // Magic Eden API types
@@ -123,41 +122,31 @@ async function fetchMagicEdenCollectionNFTs(
   filter: "pixels" | "composed" = "pixels",
   limit: number = 50
 ): Promise<NFTItem[]> {
-  if (!MAGIC_EDEN_API_KEY) {
-    console.warn("Magic Eden API key not configured, falling back to contract calls");
-    throw new Error("Magic Eden API key not configured");
-  }
-
   try {
-    const url = `${MAGIC_EDEN_BASE_URL}/tokens/v6?collection=${CONTRACT_ADDRESS.toLowerCase()}&sortBy=floorAskPrice&limit=${limit}&includeTopBid=false&excludeEOA=false&includeAttributes=false&includeQuantity=false&includeDynamicPricing=false&includeLastSale=false&normalizeRoyalties=false`;
+    const url = `/.netlify/functions/magic-eden-collection?collection=${CONTRACT_ADDRESS}&sortBy=floorAskPrice&limit=${limit}`;
     
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${MAGIC_EDEN_API_KEY}`,
-        'accept': '*/*'
-      }
-    });
+    console.log('Calling Netlify function:', url);
+    
+    const response = await fetch(url);
 
     if (!response.ok) {
-      throw new Error(`Magic Eden API error: ${response.status} ${response.statusText}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Netlify function error: ${response.status} ${response.statusText} - ${errorData.error || ''}`);
     }
 
     const data: MagicEdenCollectionResponse = await response.json();
     
     // Filter by NFT type based on name pattern - with null checks
     const filteredTokens = data.tokens.filter(item => {
-      // Add null checks for name
       const name = item.token.name;
       if (!name) {
         console.warn('Token has null name:', item.token.tokenId);
-        return false; // Skip tokens with null names
+        return false;
       }
       
       if (filter === "pixels") {
-        // Pixel NFTs have names like "Pixel (x,y)"
         return name.includes("Pixel (") && !name.includes("Composite");
       } else {
-        // Composed NFTs have names like "Composite Pixel Art"
         return name.includes("Composite");
       }
     });
@@ -187,14 +176,13 @@ async function fetchMagicEdenCollectionNFTs(
       };
     });
 
-    console.log(`Fetched ${nfts.length} ${filter} NFTs from Magic Eden API`);
+    console.log(`Fetched ${nfts.length} ${filter} NFTs from Magic Eden API via Netlify function`);
     return nfts;
   } catch (error) {
-    console.error("Error fetching from Magic Eden API:", error);
+    console.error("Error fetching from Magic Eden API via Netlify function:", error);
     throw error;
   }
 }
-
 
 /**
  * Fetch user's NFTs from Magic Eden API
@@ -204,23 +192,16 @@ async function fetchMagicEdenUserNFTs(
   filter: "pixels" | "composed" = "pixels",
   limit: number = 50
 ): Promise<NFTItem[]> {
-  if (!MAGIC_EDEN_API_KEY) {
-    console.warn("Magic Eden API key not configured, falling back to contract calls");
-    throw new Error("Magic Eden API key not configured");
-  }
-
   try {
-    const url = `${MAGIC_EDEN_BASE_URL}/users/${userAddress}/tokens/v7?normalizeRoyalties=false&sortBy=acquiredAt&sortDirection=desc&limit=${limit}&includeTopBid=false&includeAttributes=false&includeLastSale=false&includeRawData=false&filterSpamTokens=false&useNonFlaggedFloorAsk=false`;
+    const url = `/.netlify/functions/magic-eden-user?userAddress=${userAddress}&limit=${limit}`;
     
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${MAGIC_EDEN_API_KEY}`,
-        'accept': '*/*'
-      }
-    });
+    console.log('Calling Netlify function:', url);
+    
+    const response = await fetch(url);
 
     if (!response.ok) {
-      throw new Error(`Magic Eden API error: ${response.status} ${response.statusText}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Netlify function error: ${response.status} ${response.statusText} - ${errorData.error || ''}`);
     }
 
     const data: MagicEdenUserResponse = await response.json();
@@ -230,18 +211,15 @@ async function fetchMagicEdenUserNFTs(
       const isOurContract = item.token.contract.toLowerCase() === CONTRACT_ADDRESS.toLowerCase();
       if (!isOurContract) return false;
       
-      // Add null checks for name
       const name = item.token.name;
       if (!name) {
         console.warn('User token has null name:', item.token.tokenId);
-        return false; // Skip tokens with null names
+        return false;
       }
       
       if (filter === "pixels") {
-        // Pixel NFTs have names like "Pixel (x,y)"
         return name.includes("Pixel (") && !name.includes("Composite");
       } else {
-        // Composed NFTs have names like "Composite Pixel Art"
         return name.includes("Composite");
       }
     });
@@ -270,10 +248,10 @@ async function fetchMagicEdenUserNFTs(
       };
     });
 
-    console.log(`Fetched ${nfts.length} ${filter} NFTs for user ${userAddress} from Magic Eden API`);
+    console.log(`Fetched ${nfts.length} ${filter} NFTs for user ${userAddress} from Magic Eden API via Netlify function`);
     return nfts;
   } catch (error) {
-    console.error("Error fetching user NFTs from Magic Eden API:", error);
+    console.error("Error fetching user NFTs from Magic Eden API via Netlify function:", error);
     throw error;
   }
 }
