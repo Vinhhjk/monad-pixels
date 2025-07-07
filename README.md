@@ -1,36 +1,179 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎨 Monad Pixels - On-Chain Art With Frens on [Monad](https://monad.xyz)
 
-## Getting Started
+> Transform digital creativity into permanent blockchain art, one pixel at a time.
 
-First, run the development server:
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Solidity](https://img.shields.io/badge/Solidity-^0.8.0-blue)](https://soliditylang.org/)
+
+## ✨ What is Monad Pixels?
+
+MonPixels is a revolutionary on-chain pixel art platform where **every single pixel is an NFT**. Create, own, trade, and collaborate on pixel art that lives forever on the blockchain.
+
+### 🚀 Key Features
+
+- **🎯 Pixel-Perfect NFTs**: Each pixel is individually minted as an NFT with unique properties
+- **🤝 Delegate & Collaborate**: Share pixel ownership with friends and create together
+- **🧩 Compose & Decompose**: Combine small pixels into larger NFT artworks or break them apart
+- **⛓️ Fully On-Chain**: All pixel data and metadata stored permanently on blockchain
+- **🎨 Infinite Canvas**: Create anything from 8-bit sprites to complex masterpieces
+
+## 🎮 How It Works
+
+### 1. **Mint Pixels** 🎨
+```
+Draw → Mint → Own
+```
+Each pixel you draw becomes a unique NFT with:
+- Color value (RGB/Hex)
+- Position coordinates (X, Y)
+- Creation timestamp
+- Artist signature
+
+### 2. **Delegate to Friends** 👥
+```
+Your Pixel → Delegate → Friend's Wallet
+```
+- Grant drawing rights to collaborators
+- Maintain ownership while sharing creative control
+- Perfect for collaborative art projects
+
+### 3. **Compose Masterpieces** 🖼️
+```
+Pixel A + Pixel B + Pixel C = Composite NFT
+```
+- Combine multiple pixels into larger artworks
+- Create collections and series
+- Maintain provenance of individual components
+
+### 4. **Decompose When Needed** 🔄
+```
+Composite NFT → Individual Pixels
+```
+- Break apart compositions back to individual pixels
+- Redistribute pixels to different owners
+- Flexible ownership models
+
+## 🛠️ Technical Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Pixel NFT     │    │  Delegation     │    │  Composition    │
+│   Contract      │◄──►│   Manager       │◄──►│   Engine        │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 ▼
+                    ┌─────────────────┐
+                    │   Metadata      │
+                    │   Registry      │
+                    └─────────────────┘
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js v16+
+- MetaMask or compatible Web3 wallet
+- Some Monad (MON) for gas fees
+
+### Installation
+
+```bash
+git clone https://github.com/Vinhhjk/monad-pixels
+cd mon-pixels
+npm install
+```
+
+### Deploy Contracts
+
+```bash
+npx hardhat compile
+npx hardhat deploy --network localhost
+```
+
+### Start Drawing!
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Visit `http://localhost:3000` and start creating your pixel masterpiece!
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🎨 Usage Examples
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Mint a Single Pixel
+```javascript
+// Mint a red pixel at position (10, 15)
+await pixelContract.mintPixel(10, 15, "#FF0000");
+```
 
-## Learn More
+### Delegate Pixel Rights
+```javascript
+// Allow friend to modify your pixel
+await pixelContract.delegatePixel(tokenId, friendAddress);
+```
 
-To learn more about Next.js, take a look at the following resources:
+### Compose Multiple Pixels
+```javascript
+// Combine pixels into a larger NFT
+const pixelIds = [1, 2, 3, 4];
+await compositionContract.compose(pixelIds, "My Artwork");
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🌟 Use Cases
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Digital Art Collections**: Create and sell unique pixel art series
+- **Collaborative Projects**: Work together on large-scale pixel murals
+- **Gaming Assets**: Design and trade in-game sprites and items
+- **Brand Logos**: Create corporate logos with verifiable ownership
+- **Community Art**: Build shared canvases with friends and communities
 
-## Deploy on Vercel
+## 🏗️ Project Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+mon-pixels/
+├── contracts/          # Smart contracts
+│   ├── PixelNFT.sol   # Core pixel NFT contract
+├── app/               # React/Next.js frontend
+├── components/        # Frontend Components
+├── config/            # Wallet Provider (Reown) Cofig
+├── context/           # Wallet Provider (Reown) Context
+└── contractABI/       # Contract ABI
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🤝 Contributing
+
+I love contributions! Whether you're:
+- 🐛 Reporting bugs
+- 💡 Suggesting features
+- 🔧 Submitting code improvements
+- 📖 Improving documentation
+
+
+## 📜 License
+
+This project is licensed under the MIT License .
+
+## 🔗 Links
+
+- **Website**: [pixels.monadfrens.fun](https://pixels.monadfrens.fun)
+- **NFTs Data UI**:[pixels.monadfrens.fun/nft](https://pixels.monadfrens.fun/nft)
+- **X (Twitter)**: [@WagmiArc](https://x.com/WagmiArc)
+- **Explorer**: [Monad Explorer](https://testnet.monadexplorer.com/token/0xE2948e08947430068C99d99d457a243d7Dc978cb)
+- **Magic Eden**: [View Collection](https://magiceden.io/collections/monad-testnet/0xe2948e08947430068c99d99d457a243d7dc978cb)
+
+## 🎯 Roadmap
+
+- [x] Core pixel minting functionality
+- [x] Delegation system
+- [x] Basic composition/decomposition
+- [ ] Advanced canvas tools
+- [ ] Mobile app
+- [ ] Pixel marketplace
+- [ ] Community governance
+
+---
+
+**Made with ❤️ by B(WagmiArc)**
+
+*Every pixel tells a story. What's yours?*

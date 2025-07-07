@@ -11,7 +11,7 @@ const MIN_VIEWPORT_SIZE = 10; // Minimum zoom (most zoomed in)
 const MAX_VIEWPORT_SIZE =80; // Maximum zoom (most zoomed out)
 const PIXEL_SIZE = 8; // Base pixel size in pixels
 
-const CONTRACT_ADDRESS = "0x148d67013329aFC79626a913123A0DD7fD9cD918";
+const CONTRACT_ADDRESS = "0x408226e2F9AabbEf2F71DA1C744e40f0C2cF0F56";
 
 interface PixelData {
   color: string;

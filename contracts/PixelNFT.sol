@@ -2,15 +2,30 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract TestPixelNFT20 is ERC721, Ownable {
-    uint256 public constant WIDTH = 100;
-    uint256 public constant HEIGHT = 100;
+contract PixelNFT is ERC721, Ownable {
+    uint256 public constant WIDTH = 150;
+    uint256 public constant HEIGHT = 150;
     mapping(uint256 => string) public pixelColors;
     uint256 private _totalMinted = 0;
+    
+    // Fee system constants and variables
+    uint256 public updateFee = 0.1 ether;
+    uint256 public platformFeePercentage = 10; // 10% platform fee
+    address[] public exemptionContracts;
+    
+    // Custom multi-approval system - allows multiple addresses per pixel
+    mapping(uint256 => mapping(address => bool)) private _customApprovals;
+    
+    // Track count of approved addresses per pixel for easy querying
+    mapping(uint256 => uint256) public pixelApprovalCounts;
+    
+    // Store array of approved addresses per pixel for enumeration
+    mapping(uint256 => address[]) private _pixelApprovedAddressList;
     
     // Add default color constant
     string public constant DEFAULT_COLOR = "#ffffff";
@@ -21,8 +36,102 @@ contract TestPixelNFT20 is ERC721, Ownable {
 
     // Add custom event for color updates
     event ColorUpdated(uint256 indexed tokenId, uint256 indexed x, uint256 indexed y, string color, address owner);
+    
+    // Fee system events
+    event PixelUpdateFeePaid(uint256 indexed tokenId, address indexed updater, address indexed pixelOwner, uint256 x, uint256 y, uint256 amount);
+    event PlatformFeePaid(uint256 indexed tokenId, address indexed updater, uint256 platformFee, uint256 ownerFee);
+    event ExemptionContractAdded(address indexed contractAddress);
+    event ExemptionContractRemoved(address indexed contractAddress);
+    event UpdateFeeChanged(uint256 oldFee, uint256 newFee);
+    event PlatformFeePercentageChanged(uint256 oldPercentage, uint256 newPercentage);
 
-    constructor() ERC721("PixelNFT", "PXNFT") Ownable(msg.sender) {}
+    constructor() ERC721("PixelNFT", "PXNFT") Ownable(msg.sender) {
+        // Initialize with default exemption contracts
+        exemptionContracts.push(0xF3ad8B549D57004e628D875d452B961aFfE8A611);
+        exemptionContracts.push(0xE6B5427b174344fd5CB1e3d5550306B0055473C6);
+        exemptionContracts.push(0x7370A0a9E9A833Bcd071b38FC25184E7AFB57AFF);
+    }
+    
+    /**
+     * @dev Check if an address holds at least 1 NFT from any exemption contracts
+     * @param account Address to check
+     * @return true if account holds NFTs from any exemption contract
+     */
+    function hasExemption(address account) public view returns (bool) {
+        for (uint256 i = 0; i < exemptionContracts.length; i++) {
+            try IERC721(exemptionContracts[i]).balanceOf(account) returns (uint256 balance) {
+                if (balance > 0) return true;
+            } catch {
+                // If contract doesn't exist or call fails, continue checking
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * @dev Get all exemption contract addresses
+     * @return Array of exemption contract addresses
+     */
+    function getExemptionContracts() external view returns (address[] memory) {
+        return exemptionContracts;
+    }
+    
+    /**
+     * @dev Add an exemption contract (only owner)
+     * @param contractAddress Address of the contract to add
+     */
+    function addExemptionContract(address contractAddress) external onlyOwner {
+        require(contractAddress != address(0), "Invalid contract address");
+        
+        // Check if contract already exists
+        for (uint256 i = 0; i < exemptionContracts.length; i++) {
+            require(exemptionContracts[i] != contractAddress, "Contract already exists");
+        }
+        
+        exemptionContracts.push(contractAddress);
+        emit ExemptionContractAdded(contractAddress);
+    }
+    
+    /**
+     * @dev Remove an exemption contract (only owner)
+     * @param contractAddress Address of the contract to remove
+     */
+    function removeExemptionContract(address contractAddress) external onlyOwner {
+        require(contractAddress != address(0), "Invalid contract address");
+        
+        for (uint256 i = 0; i < exemptionContracts.length; i++) {
+            if (exemptionContracts[i] == contractAddress) {
+                // Move the last element to this position and pop
+                exemptionContracts[i] = exemptionContracts[exemptionContracts.length - 1];
+                exemptionContracts.pop();
+                emit ExemptionContractRemoved(contractAddress);
+                return;
+            }
+        }
+        
+        revert("Contract not found");
+    }
+    
+    /**
+     * @dev Set the update fee (only owner)
+     * @param newFee New fee amount in wei
+     */
+    function setUpdateFee(uint256 newFee) external onlyOwner {
+        uint256 oldFee = updateFee;
+        updateFee = newFee;
+        emit UpdateFeeChanged(oldFee, newFee);
+    }
+    
+    /**
+     * @dev Set the platform fee percentage (only owner)
+     * @param newPercentage New percentage (0-100)
+     */
+    function setPlatformFeePercentage(uint256 newPercentage) external onlyOwner {
+        require(newPercentage <= 100, "Percentage cannot exceed 100");
+        uint256 oldPercentage = platformFeePercentage;
+        platformFeePercentage = newPercentage;
+        emit PlatformFeePercentageChanged(oldPercentage, newPercentage);
+    }
 
     // Add color validation function
     function _validateAndNormalizeColor(string memory color) internal pure returns (string memory) {
@@ -104,42 +213,144 @@ contract TestPixelNFT20 is ERC721, Ownable {
         }
     }
     
-    function updateColor(uint256 x, uint256 y, string memory color) external {
+    function updateColor(uint256 x, uint256 y, string memory color) external payable {
         uint256 tokenId = _getTokenId(x, y);
-        address owner = ownerOf(tokenId);
-        require(
-            owner == msg.sender || 
-            getApproved(tokenId) == msg.sender ||
-            isApprovedForAll(owner, msg.sender), 
-            "Not authorized to update this pixel"
+        address pixelOwner = ownerOf(tokenId);
+        bool isAuthorized = (
+            pixelOwner == msg.sender || 
+            _customApprovals[tokenId][msg.sender]  // Only use custom approvals
         );
+        
+        // If not authorized, check fee requirements
+        if (!isAuthorized) {
+            bool hasNFTExemption = hasExemption(msg.sender);
+            
+            if (!hasNFTExemption) {
+                // Require fee payment
+                require(msg.value >= updateFee, "Insufficient fee for pixel update");
+                
+                // Calculate platform fee and owner fee
+                uint256 platformFee = (updateFee * platformFeePercentage) / 100;
+                uint256 ownerFee = updateFee - platformFee;
+                
+                // Pay platform fee to contract owner (only if > 0)
+                if (platformFee > 0) {
+                    (bool platformSuccess, ) = payable(owner()).call{value: platformFee}("");
+                    require(platformSuccess, "Platform fee transfer failed");
+                }
+                
+                // Pay remaining fee to pixel owner (only if > 0)
+                if (ownerFee > 0) {
+                    (bool ownerSuccess, ) = payable(pixelOwner).call{value: ownerFee}("");
+                    require(ownerSuccess, "Owner fee transfer failed");
+                }
+                
+                // Emit fee payment events
+                emit PixelUpdateFeePaid(tokenId, msg.sender, pixelOwner, x, y, updateFee);
+                emit PlatformFeePaid(tokenId, msg.sender, platformFee, ownerFee);
+                
+                // Refund excess payment
+                if (msg.value > updateFee) {
+                    (bool refundSuccess, ) = payable(msg.sender).call{value: msg.value - updateFee}("");
+                    require(refundSuccess, "Refund failed");
+                }
+            } else {
+                // NFT holder exemption - no fee required, but refund any sent ETH
+                if (msg.value > 0) {
+                    (bool refundSuccess, ) = payable(msg.sender).call{value: msg.value}("");
+                    require(refundSuccess, "Refund failed");
+                }
+            }
+        } else {
+            // Authorized user - refund any sent ETH
+            if (msg.value > 0) {
+                (bool refundSuccess, ) = payable(msg.sender).call{value: msg.value}("");
+                require(refundSuccess, "Refund failed");
+            }
+        }
         
         // Validate and normalize color
         string memory validColor = _validateAndNormalizeColor(color);
         pixelColors[tokenId] = validColor;
         
-        emit ColorUpdated(tokenId, x, y, validColor, owner);
+        emit ColorUpdated(tokenId, x, y, validColor, pixelOwner);
     }
     
-    function batchUpdateColor(uint256[] memory x, uint256[] memory y, string[] memory colors) external {
+    function batchUpdateColor(uint256[] memory x, uint256[] memory y, string[] memory colors) external payable {
         require(x.length == y.length && y.length == colors.length, "Arrays length mismatch");
         require(x.length > 0, "Empty arrays");
         
+        bool hasNFTExemption = hasExemption(msg.sender);
+        uint256 totalFeesRequired = 0;
+        uint256 unauthorizedCount = 0;
+        
+        // First pass: check authorization and calculate fees
         for (uint256 i = 0; i < x.length; i++) {
             uint256 tokenId = _getTokenId(x[i], y[i]);
-            address owner = ownerOf(tokenId);
-            require(
-                owner == msg.sender || 
-                getApproved(tokenId) == msg.sender ||
-                isApprovedForAll(owner, msg.sender), 
-                "Not authorized to update pixel"
+            address pixelOwner = ownerOf(tokenId);
+            bool isAuthorized = (
+                pixelOwner == msg.sender || 
+                _customApprovals[tokenId][msg.sender]  // Only use custom approvals
             );
+            
+            if (!isAuthorized && !hasNFTExemption) {
+                totalFeesRequired += updateFee;
+                unauthorizedCount++;
+            }
+        }
+        
+        // Check if enough ETH was sent for unauthorized pixels
+        if (totalFeesRequired > 0) {
+            require(msg.value >= totalFeesRequired, "Insufficient fee for batch pixel update");
+        }
+        
+        uint256 feesDistributed = 0;
+        
+        // Second pass: update colors and distribute fees
+        for (uint256 i = 0; i < x.length; i++) {
+            uint256 tokenId = _getTokenId(x[i], y[i]);
+            address pixelOwner = ownerOf(tokenId);
+            bool isAuthorized = (
+                pixelOwner == msg.sender || 
+                _customApprovals[tokenId][msg.sender]  // Only use custom approvals
+            );
+            
+            // Handle fee payment for unauthorized pixels
+            if (!isAuthorized && !hasNFTExemption) {
+                // Calculate platform fee and owner fee
+                uint256 platformFee = (updateFee * platformFeePercentage) / 100;
+                uint256 ownerFee = updateFee - platformFee;
+                
+                // Pay platform fee to contract owner (only if > 0)
+                if (platformFee > 0) {
+                    (bool platformSuccess, ) = payable(owner()).call{value: platformFee}("");
+                    require(platformSuccess, "Platform fee transfer failed");
+                }
+                
+                // Pay remaining fee to pixel owner (only if > 0)
+                if (ownerFee > 0) {
+                    (bool ownerSuccess, ) = payable(pixelOwner).call{value: ownerFee}("");
+                    require(ownerSuccess, "Owner fee transfer failed");
+                }
+                
+                feesDistributed += updateFee;
+                
+                // Emit fee payment events
+                emit PixelUpdateFeePaid(tokenId, msg.sender, pixelOwner, x[i], y[i], updateFee);
+                emit PlatformFeePaid(tokenId, msg.sender, platformFee, ownerFee);
+            }
             
             // Validate and normalize color
             string memory validColor = _validateAndNormalizeColor(colors[i]);
             pixelColors[tokenId] = validColor;
             
-            emit ColorUpdated(tokenId, x[i], y[i], validColor, owner);
+            emit ColorUpdated(tokenId, x[i], y[i], validColor, pixelOwner);
+        }
+        
+        // Refund excess payment
+        if (msg.value > feesDistributed) {
+            (bool refundSuccess, ) = payable(msg.sender).call{value: msg.value - feesDistributed}("");
+            require(refundSuccess, "Refund failed");
         }
     }
 
@@ -197,64 +408,7 @@ contract TestPixelNFT20 is ERC721, Ownable {
         return (tokenIds, owners, colors);
     }
 
-    // Delegation Functions
-    
-    /**
-     * @dev Approve multiple pixels at once for delegation
-     * @param x Array of X coordinates
-     * @param y Array of Y coordinates  
-     * @param to Address to approve for all pixels
-     */
-    function batchApprove(uint256[] memory x, uint256[] memory y, address to) external {
-        require(x.length == y.length, "Arrays length mismatch");
-        require(x.length > 0, "Empty arrays");
-        require(to != address(0), "Cannot approve zero address");
-        
-        for (uint256 i = 0; i < x.length; i++) {
-            uint256 tokenId = _getTokenId(x[i], y[i]);
-            require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
-            
-            // Use the inherited approve function
-            approve(to, tokenId);
-        }
-    }
-    
-    /**
-     * @dev Approve a single pixel by coordinates for delegation
-     * @param x X coordinate
-     * @param y Y coordinate
-     * @param to Address to approve
-     */
-    function approvePixel(uint256 x, uint256 y, address to) external {
-        uint256 tokenId = _getTokenId(x, y);
-        require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
-        
-        approve(to, tokenId);
-    }
-    
-    /**
-     * @dev Approve multiple pixels to multiple addresses in a single transaction
-     * @param x Array of X coordinates
-     * @param y Array of Y coordinates  
-     * @param operators Array of addresses to approve for all pixels
-     */
-    function batchApproveMultipleAddresses(uint256[] memory x, uint256[] memory y, address[] memory operators) external {
-        require(x.length == y.length, "Coordinates arrays length mismatch");
-        require(x.length > 0, "Empty coordinates arrays");
-        require(operators.length > 0, "Empty operators array");
-        
-        // Approve each pixel to each operator
-        for (uint256 i = 0; i < x.length; i++) {
-            uint256 tokenId = _getTokenId(x[i], y[i]);
-            require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
-            
-            for (uint256 j = 0; j < operators.length; j++) {
-                require(operators[j] != address(0), "Cannot approve zero address");
-                // Use the inherited approve function for each operator
-                approve(operators[j], tokenId);
-            }
-        }
-    }
+    // Custom Multi-Approval System (replaces standard delegation)
 
     /**
      * @dev Check if an address is authorized to update a pixel
@@ -269,8 +423,182 @@ contract TestPixelNFT20 is ERC721, Ownable {
         
         address owner = ownerOf(tokenId);
         return owner == operator || 
-               getApproved(tokenId) == operator ||
-               isApprovedForAll(owner, operator);
+               _customApprovals[tokenId][operator]; // Only use custom approvals
+    }
+
+    // Custom Multi-Approval System
+    
+    /**
+     * @dev Approve an address for a specific pixel (allows multiple approvals per pixel)
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param operator Address to approve
+     */
+    function approvePixelMulti(uint256 x, uint256 y, address operator) external {
+        uint256 tokenId = _getTokenId(x, y);
+        require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
+        require(operator != address(0), "Cannot approve zero address");
+        require(operator != msg.sender, "Cannot approve yourself");
+        
+        // Only increment if this is a new approval
+        if (!_customApprovals[tokenId][operator]) {
+            _customApprovals[tokenId][operator] = true;
+            pixelApprovalCounts[tokenId]++;
+            _pixelApprovedAddressList[tokenId].push(operator);
+        }
+    }
+    
+    /**
+     * @dev Revoke approval for an address for a specific pixel
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param operator Address to revoke approval from
+     */
+    function revokePixelMulti(uint256 x, uint256 y, address operator) external {
+        uint256 tokenId = _getTokenId(x, y);
+        require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
+        
+        // Only decrement if this was actually approved
+        if (_customApprovals[tokenId][operator]) {
+            _customApprovals[tokenId][operator] = false;
+            pixelApprovalCounts[tokenId]--;
+            _removeFromApprovedList(tokenId, operator);
+        }
+    }
+    
+    /**
+     * @dev Check if an address has custom approval for a specific pixel
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param operator Address to check
+     * @return True if operator has custom approval for this pixel
+     */
+    function hasPixelMultiApproval(uint256 x, uint256 y, address operator) external view returns (bool) {
+        uint256 tokenId = _getTokenId(x, y);
+        return _customApprovals[tokenId][operator];
+    }
+    
+    /**
+     * @dev Batch approve multiple addresses for multiple pixels
+     * @param x Array of X coordinates
+     * @param y Array of Y coordinates
+     * @param operators Array of addresses to approve for ALL specified pixels
+     */
+    function batchApprovePixelMulti(uint256[] memory x, uint256[] memory y, address[] memory operators) external {
+        require(x.length == y.length, "Coordinates arrays length mismatch");
+        require(x.length > 0, "Empty coordinates arrays");
+        require(operators.length > 0, "Empty operators array");
+        
+        // Approve each operator for each pixel
+        for (uint256 i = 0; i < x.length; i++) {
+            uint256 tokenId = _getTokenId(x[i], y[i]);
+            require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
+            
+            for (uint256 j = 0; j < operators.length; j++) {
+                require(operators[j] != address(0), "Cannot approve zero address");
+                require(operators[j] != msg.sender, "Cannot approve yourself");
+                
+                // Only increment if this is a new approval
+                if (!_customApprovals[tokenId][operators[j]]) {
+                    _customApprovals[tokenId][operators[j]] = true;
+                    pixelApprovalCounts[tokenId]++;
+                    _pixelApprovedAddressList[tokenId].push(operators[j]);
+                }
+            }
+        }
+    }
+    
+    /**
+     * @dev Batch revoke multiple addresses for multiple pixels
+     * @param x Array of X coordinates
+     * @param y Array of Y coordinates
+     * @param operators Array of addresses to revoke from ALL specified pixels
+     */
+    function batchRevokePixelMulti(uint256[] memory x, uint256[] memory y, address[] memory operators) external {
+        require(x.length == y.length, "Coordinates arrays length mismatch");
+        require(x.length > 0, "Empty coordinates arrays");
+        require(operators.length > 0, "Empty operators array");
+        
+        // Revoke each operator from each pixel
+        for (uint256 i = 0; i < x.length; i++) {
+            uint256 tokenId = _getTokenId(x[i], y[i]);
+            require(ownerOf(tokenId) == msg.sender, "Not the owner of pixel");
+            
+            for (uint256 j = 0; j < operators.length; j++) {
+                // Only decrement if this was actually approved
+                if (_customApprovals[tokenId][operators[j]]) {
+                    _customApprovals[tokenId][operators[j]] = false;
+                    pixelApprovalCounts[tokenId]--;
+                    _removeFromApprovedList(tokenId, operators[j]);
+                }
+            }
+        }
+    }
+
+    // Helper function to remove an address from the approved list
+    function _removeFromApprovedList(uint256 tokenId, address operator) private {
+        address[] storage approvedList = _pixelApprovedAddressList[tokenId];
+        for (uint256 i = 0; i < approvedList.length; i++) {
+            if (approvedList[i] == operator) {
+                // Move the last element to this position and pop
+                approvedList[i] = approvedList[approvedList.length - 1];
+                approvedList.pop();
+                break;
+            }
+        }
+    }
+
+    // View functions for the custom multi-approval system
+    
+    /**
+     * @dev Get the count of approved addresses for a specific pixel
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @return count Number of addresses that have approval for this pixel
+     */
+    function getPixelApprovalCount(uint256 x, uint256 y) external view returns (uint256 count) {
+        uint256 tokenId = _getTokenId(x, y);
+        require(_exists(tokenId), "Pixel does not exist");
+        return pixelApprovalCounts[tokenId];
+    }
+    
+    /**
+     * @dev Get all approved addresses for a specific pixel
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @return addresses Array of all approved addresses for this pixel
+     */
+    function getPixelApprovedAddressesList(uint256 x, uint256 y) external view returns (address[] memory addresses) {
+        uint256 tokenId = _getTokenId(x, y);
+        require(_exists(tokenId), "Pixel does not exist");
+        return _pixelApprovedAddressList[tokenId];
+    }
+    
+    /**
+     * @dev Get all approved addresses for a specific pixel (requires list of addresses to check)
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param addresses Array of addresses to check
+     * @return approvedAddresses Array of addresses that have approval
+     */
+    function getPixelApprovedAddresses(uint256 x, uint256 y, address[] memory addresses) external view returns (address[] memory approvedAddresses) {
+        uint256 tokenId = _getTokenId(x, y);
+        require(_exists(tokenId), "Pixel does not exist");
+        
+        uint256 count = 0;
+        address[] memory temp = new address[](addresses.length);
+        
+        for (uint256 i = 0; i < addresses.length; i++) {
+            if (_customApprovals[tokenId][addresses[i]]) {
+                temp[count] = addresses[i];
+                count++;
+            }
+        }
+        
+        approvedAddresses = new address[](count);
+        for (uint256 i = 0; i < count; i++) {
+            approvedAddresses[i] = temp[i];
+        }
     }
 
     function _exists(uint256 tokenId) internal view returns (bool) {
@@ -278,10 +606,23 @@ contract TestPixelNFT20 is ERC721, Ownable {
     }
 
     function generateCollectionAvatar() public view returns (string memory) {
-        // Create a more compact SVG for gas efficiency
+        // Calculate center area (20x21 = 420 pixels)
+        uint256 centerX = WIDTH / 2;  // 150/2 = 75
+        uint256 centerY = HEIGHT / 2; // 150/2 = 75
+        uint256 halfWidth = 10;   // 20 pixels wide (10 each side)
+        uint256 halfHeight = 10;  // 21 pixels tall (10 + center + 10)
+        
+        uint256 startX = centerX > halfWidth ? centerX - halfWidth : 0;      // 75-10 = 65
+        uint256 endX = centerX + halfWidth < WIDTH ? centerX + halfWidth : WIDTH - 1;  // 75+10 = 85
+        uint256 startY = centerY > halfHeight ? centerY - halfHeight : 0;    // 75-10 = 65  
+        uint256 endY = centerY + halfHeight < HEIGHT ? centerY + halfHeight : HEIGHT - 1; // 75+10 = 85
+            
+        uint256 regionWidth = endX - startX + 1;
+        uint256 regionHeight = endY - startY + 1;
+        
         string memory svg = string(abi.encodePacked(
             '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 ', 
-            Strings.toString(WIDTH), ' ', Strings.toString(HEIGHT), 
+            Strings.toString(regionWidth), ' ', Strings.toString(regionHeight), 
             '" style="image-rendering: pixelated;">'
         ));
         
@@ -291,9 +632,9 @@ contract TestPixelNFT20 is ERC721, Ownable {
             '<rect width="100%" height="100%" fill="', DEFAULT_COLOR, '"/>'
         ));
         
-        // Add each minted pixel as a 1x1 rectangle
-        for (uint256 y = 0; y < HEIGHT; y++) {
-            for (uint256 x = 0; x < WIDTH; x++) {
+        // Add only center pixels
+        for (uint256 y = startY; y <= endY; y++) {
+            for (uint256 x = startX; x <= endX; x++) {
                 uint256 tokenId = _getTokenId(x, y);
                 if (_exists(tokenId)) {
                     string memory color = pixelColors[tokenId];
@@ -303,8 +644,8 @@ contract TestPixelNFT20 is ERC721, Ownable {
                     
                     svg = string(abi.encodePacked(
                         svg,
-                        '<rect x="', Strings.toString(x), 
-                        '" y="', Strings.toString(y), 
+                        '<rect x="', Strings.toString(x - startX), 
+                        '" y="', Strings.toString(y - startY), 
                         '" width="1" height="1" fill="', color, '"/>'
                     ));
                 }
@@ -314,6 +655,7 @@ contract TestPixelNFT20 is ERC721, Ownable {
         svg = string(abi.encodePacked(svg, '</svg>'));
         return svg;
     }
+
 
     //KEY FUNCTION - contractURI() for marketplace recognition
     function contractURI() public view returns (string memory) {
@@ -327,11 +669,10 @@ contract TestPixelNFT20 is ERC721, Ownable {
                 string(
                     abi.encodePacked(
                         '{',
-                            '"name": "Pixel Canvas Collection",',
+                            '"name": "Onchain Pixels Collection",',
                             '"description": "', collectionDescription, '",',
                             '"image": "data:image/svg+xml;base64,', Base64.encode(bytes(svg)), '",',
                             '"external_link": "', externalUrl, '",',
-                            '"seller_fee_basis_points": 250,',
                             '"fee_recipient": "', Strings.toHexString(uint160(owner()), 20), '",',
                             '"attributes": [',
                                 '{"trait_type": "Total Pixels", "value": ', Strings.toString(WIDTH * HEIGHT), '},',
@@ -349,13 +690,80 @@ contract TestPixelNFT20 is ERC721, Ownable {
         return string(abi.encodePacked("data:application/json;base64,", json));
     }
 
-    // Owner functions to update collection info
+    // Owner functions to manually update collection info
     function setCollectionDescription(string memory _description) external onlyOwner {
         collectionDescription = _description;
     }
     
     function setExternalUrl(string memory _url) external onlyOwner {
         externalUrl = _url;
+    }
+    
+    /**
+     * @dev Calculate fee required for batch update of specific pixels
+     * @param x Array of X coordinates
+     * @param y Array of Y coordinates
+     * @param account Address that wants to update the pixels
+     * @return totalFee Total fee required in wei
+     * @return unauthorizedCount Number of pixels requiring fee payment
+     */
+    function calculateBatchUpdateFee(uint256[] memory x, uint256[] memory y, address account) 
+        external view returns (uint256 totalFee, uint256 unauthorizedCount) {
+        require(x.length == y.length, "Arrays length mismatch");
+        
+        bool hasNFTExemption = hasExemption(account);
+        if (hasNFTExemption) {
+            return (0, 0);
+        }
+        
+        for (uint256 i = 0; i < x.length; i++) {
+            uint256 tokenId = _getTokenId(x[i], y[i]);
+            if (!_exists(tokenId)) continue; // Skip unminted pixels
+            
+            address pixelOwner = ownerOf(tokenId);
+            bool isAuthorized = (
+                pixelOwner == account || 
+                _customApprovals[tokenId][account]  // Only use custom approvals
+            );
+            
+            if (!isAuthorized) {
+                totalFee += updateFee;
+                unauthorizedCount++;
+            }
+        }
+    }
+    
+    /**
+     * @dev Calculate fee required for single pixel update
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @param account Address that wants to update the pixel
+     * @return fee Fee required in wei (0 if authorized or exempt)
+     * @return requiresFee Whether fee payment is required
+     */
+    function calculateUpdateFee(uint256 x, uint256 y, address account) 
+        external view returns (uint256 fee, bool requiresFee) {
+        uint256 tokenId = _getTokenId(x, y);
+        if (!_exists(tokenId)) {
+            return (0, false); // Unminted pixels don't require fees
+        }
+        
+        address pixelOwner = ownerOf(tokenId);
+        bool isAuthorized = (
+            pixelOwner == account || 
+            _customApprovals[tokenId][account]  // Only use custom approvals
+        );
+        
+        if (isAuthorized) {
+            return (0, false);
+        }
+        
+        bool hasNFTExemption = hasExemption(account);
+        if (hasNFTExemption) {
+            return (0, false);
+        }
+        
+        return (updateFee, true);
     }
 
     // Generate regional avatar for gas efficiency
@@ -603,8 +1011,9 @@ contract TestPixelNFT20 is ERC721, Ownable {
         uint256 height = maxY - minY + 1;
         
         string memory svg = string(abi.encodePacked(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="', Strings.toString(width * 10), 
-            '" height="', Strings.toString(height * 10), '" style="image-rendering: pixelated;">'
+            '<svg xmlns="http://www.w3.org/2000/svg" ',
+            'viewBox="0 0 ', Strings.toString(width * 10), ' ', Strings.toString(height * 10), '" ',
+            'preserveAspectRatio="xMidYMid meet" style="image-rendering: pixelated;">'
         ));
         
         // Add each pixel in the composition
@@ -646,7 +1055,102 @@ contract TestPixelNFT20 is ERC721, Ownable {
         
         return string(abi.encodePacked("data:application/json;base64,", json));
     }
-    
+    // Add this function to your contract (around line 800, after the other view functions)
+
+    /**
+    * @dev Get SVG images for a batch of token IDs (gas efficient)
+    * @param tokenIds Array of token IDs to get images for
+    * @return images Array of base64 encoded SVG images
+    * @return exists Array indicating which tokens exist
+    */
+    function getBatchTokenImages(uint256[] memory tokenIds) 
+        external view returns (string[] memory images, bool[] memory exists) {
+        
+        require(tokenIds.length <= 20, "Batch size too large"); // Limit to prevent gas issues
+        
+        images = new string[](tokenIds.length);
+        exists = new bool[](tokenIds.length);
+        
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 tokenId = tokenIds[i];
+            
+            if (_exists(tokenId)) {
+                exists[i] = true;
+                
+                // Check if it's a composite NFT
+                if (tokenId >= 100000 && compositeComponents[tokenId].length > 0) {
+                    // Generate composite image
+                    images[i] = _generateCompositeImage(tokenId);
+                } else {
+                    // Generate regular pixel image
+                    images[i] = _generatePixelImage(tokenId);
+                }
+            } else {
+                exists[i] = false;
+                images[i] = "";
+            }
+        }
+        
+        return (images, exists);
+    }
+
+    /**
+    * @dev Generate base64 encoded SVG for a single pixel
+    */
+    function _generatePixelImage(uint256 tokenId) internal view returns (string memory) {
+        string memory color = pixelColors[tokenId];
+        if (bytes(color).length == 0) {
+            color = DEFAULT_COLOR;
+        }
+        
+        string memory svg = string(abi.encodePacked(
+            '<svg xmlns="http://www.w3.org/2000/svg" ',
+            'viewBox="0 0 100 100" ',
+            'preserveAspectRatio="xMidYMid meet">',
+            '<rect x="0" y="0" width="100" height="100" fill="', color, '" />',
+            '</svg>'
+        ));
+        
+        return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
+    }
+
+    /**
+    * @dev Generate base64 encoded SVG for a composite NFT
+    */
+    function _generateCompositeImage(uint256 compositeId) internal view returns (string memory) {
+        uint256[] memory tokenIds = compositeComponents[compositeId];
+        if (tokenIds.length == 0) return "";
+        
+        (, uint256 minX, uint256 minY, uint256 maxX, uint256 maxY) = this.getCompositionInfo(compositeId);
+        
+        uint256 width = maxX - minX + 1;
+        uint256 height = maxY - minY + 1;
+        
+        string memory svg = string(abi.encodePacked(
+            '<svg xmlns="http://www.w3.org/2000/svg" ',
+            'viewBox="0 0 ', Strings.toString(width * 10), ' ', Strings.toString(height * 10), '" ',
+            'preserveAspectRatio="xMidYMid meet" style="image-rendering: pixelated;">'
+        ));
+        
+        // Add each pixel in the composition
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 x = tokenIds[i] % WIDTH;
+            uint256 y = tokenIds[i] / WIDTH;
+            string memory color = pixelColors[tokenIds[i]];
+            
+            svg = string(abi.encodePacked(
+                svg,
+                '<rect x="', Strings.toString((x - minX) * 10), 
+                '" y="', Strings.toString((y - minY) * 10), 
+                '" width="10" height="10" fill="', color, '"/>'
+            ));
+        }
+        
+        svg = string(abi.encodePacked(svg, '</svg>'));
+        
+        return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
+    }
+
     /**
      * @dev Override tokenURI to handle composite NFTs
      */
