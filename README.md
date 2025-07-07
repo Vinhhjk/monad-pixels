@@ -159,8 +159,8 @@ This project is licensed under the MIT License .
 - **Website**: [pixels.monadfrens.fun](https://pixels.monadfrens.fun)
 - **NFTs Data UI**:[pixels.monadfrens.fun/nft](https://pixels.monadfrens.fun/nft)
 - **X (Twitter)**: [@WagmiArc](https://x.com/WagmiArc)
-- **Explorer**: [Monad Explorer](https://testnet.monadexplorer.com/token/0xE2948e08947430068C99d99d457a243d7Dc978cb)
-- **Magic Eden**: [View Collection](https://magiceden.io/collections/monad-testnet/0xe2948e08947430068c99d99d457a243d7dc978cb)
+- **Explorer**: [Monad Explorer](https://testnet.monadexplorer.com/token/0x82D0B70aD6Fcdb8aAD6048f86afca83D69F556b9)
+- **Magic Eden**: [View Collection](https://magiceden.io/collections/monad-testnet/0x82D0B70aD6Fcdb8aAD6048f86afca83D69F556b9)
 
 ## 🎯 Roadmap
 
