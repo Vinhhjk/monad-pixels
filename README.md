@@ -83,13 +83,13 @@ git clone https://github.com/Vinhhjk/monad-pixels
 cd mon-pixels
 npm install
 ```
+### Edit environment variables
+NEXT_PUBLIC_PROJECT_ID=""
+NEXT_PUBLIC_RPC_URL=""
+NEXT_PUBLIC_MAGIC_EDEN_API_KEY=""
 
 ### Deploy Contracts
 
-```bash
-npx hardhat compile
-npx hardhat deploy --network localhost
-```
 
 ### Start Drawing!
 
