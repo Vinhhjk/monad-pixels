@@ -48,12 +48,12 @@ export default function NFTGrid({
 
   return (
     <div className="space-y-4">
-      {/* Top 200 Notice */}
+      {/* Top 50 Notice */}
       <div className="bg-white border border-blue-200 rounded-lg p-3 shadow-sm">
         <div className="flex items-center gap-2">
           <span className="text-blue-600 text-sm">ℹ️</span>
           <p className="text-sm text-blue-800">
-            <span className="font-medium">Note:</span> Displaying top 200 (For details please search for specific NFTs)
+            <span className="font-medium">Note:</span> Displaying top 50 (For details please search for specific NFTs)
           </p>
         </div>
       </div>

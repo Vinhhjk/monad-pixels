@@ -121,7 +121,7 @@ export function decodeBase64JSON(base64String: string): NFTMetadata {
  */
 async function fetchMagicEdenCollectionNFTs(
   filter: "pixels" | "composed" = "pixels",
-  limit: number = 200
+  limit: number = 50
 ): Promise<NFTItem[]> {
   if (!MAGIC_EDEN_API_KEY) {
     console.warn("Magic Eden API key not configured, falling back to contract calls");
@@ -202,7 +202,7 @@ async function fetchMagicEdenCollectionNFTs(
 async function fetchMagicEdenUserNFTs(
   userAddress: string,
   filter: "pixels" | "composed" = "pixels",
-  limit: number = 200
+  limit: number = 50
 ): Promise<NFTItem[]> {
   if (!MAGIC_EDEN_API_KEY) {
     console.warn("Magic Eden API key not configured, falling back to contract calls");
