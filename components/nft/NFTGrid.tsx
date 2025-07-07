@@ -6,7 +6,7 @@ import { usePublicClient, useWriteContract, useWaitForTransactionReceipt } from 
 import { useAppKitAccount } from "@reown/appkit/react";
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
 
-const CONTRACT_ADDRESS = "0xE2948e08947430068C99d99d457a243d7Dc978cb";
+const CONTRACT_ADDRESS = "0x82D0B70aD6Fcdb8aAD6048f86afca83D69F556b9";
 
 interface NFTGridProps {
   nfts: NFTItem[];

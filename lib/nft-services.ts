@@ -2,7 +2,7 @@ import type { PublicClient } from "viem";
 import PXNFT_ABI from "@/contractABI/PXNFT.json";
 import type { Abi } from "viem";
 
-const CONTRACT_ADDRESS = "0xE2948e08947430068C99d99d457a243d7Dc978cb";
+const CONTRACT_ADDRESS = "0x82D0B70aD6Fcdb8aAD6048f86afca83D69F556b9";
 
 // Magic Eden API configuration
 const MAGIC_EDEN_API_KEY = process.env.NEXT_PUBLIC_MAGIC_EDEN_API_KEY;

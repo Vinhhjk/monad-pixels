@@ -19,7 +19,7 @@ import {
   type NFTMetadata,
 } from "@/lib/nft-services";
 import NFTSection from "@/components/nft/NFTSection";
-const CONTRACT_ADDRESS = "0xE2948e08947430068C99d99d457a243d7Dc978cb";
+const CONTRACT_ADDRESS = "0x82D0B70aD6Fcdb8aAD6048f86afca83D69F556b9";
 interface ReadContractWithGas {
   address: `0x${string}`;
   abi: Abi;

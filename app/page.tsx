@@ -20,7 +20,7 @@ const MIN_VIEWPORT_SIZE = 10; // Minimum zoom (most zoomed in)
 const MAX_VIEWPORT_SIZE = 100; // Maximum zoom (most zoomed out)
 const PIXEL_SIZE = 8; // Base pixel size in pixels
 
-const CONTRACT_ADDRESS = "0xE2948e08947430068C99d99d457a243d7Dc978cb";
+const CONTRACT_ADDRESS = "0x82D0B70aD6Fcdb8aAD6048f86afca83D69F556b9";
 const EXPLORER_BASE_URL = "https://testnet.monadexplorer.com/tx/";
 
 interface PixelData {

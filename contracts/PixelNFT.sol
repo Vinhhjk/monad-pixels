@@ -887,6 +887,310 @@ contract PixelNFT is ERC721, Ownable {
         
         return tokenIds;
     }
+        /**
+    * @dev Generate compressed SVG for composite NFTs using optimized techniques
+    */
+    function _generateCompressedCompositeImage(uint256 compositeId) internal view returns (string memory) {
+        uint256[] memory tokenIds = compositeComponents[compositeId];
+        if (tokenIds.length == 0) return "";
+        
+        (, uint256 minX, uint256 minY, uint256 maxX, uint256 maxY) = this.getCompositionInfo(compositeId);
+        
+        uint256 width = maxX - minX + 1;
+        uint256 height = maxY - minY + 1;
+        
+        // Use compressed SVG with shorter attribute names and grouped elements
+        string memory svg = string(abi.encodePacked(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ',
+            Strings.toString(width), ' ', Strings.toString(height), 
+            '" style="image-rendering:pixelated">'
+        ));
+        
+        // Group pixels by color to reduce redundancy
+        svg = string(abi.encodePacked(svg, _generateColorGroups(tokenIds, minX, minY)));
+        
+        return string(abi.encodePacked(svg, '</svg>'));
+    }
+
+    /**
+    * @dev Group pixels by color and generate compressed SVG paths
+    */
+    function _generateColorGroups(uint256[] memory tokenIds, uint256 minX, uint256 minY) 
+        internal view returns (string memory) {
+        
+        // Create color groups mapping
+        string[] memory uniqueColors = new string[](tokenIds.length);
+        uint256[][] memory colorPixels = new uint256[][](tokenIds.length);
+        uint256[] memory colorCounts = new uint256[](tokenIds.length);
+        uint256 uniqueColorCount = 0;
+        
+        // Group pixels by color
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            string memory color = pixelColors[tokenIds[i]];
+            if (bytes(color).length == 0) color = DEFAULT_COLOR;
+            
+            // Find existing color group or create new one
+            uint256 colorIndex = uniqueColorCount;
+            for (uint256 j = 0; j < uniqueColorCount; j++) {
+                if (keccak256(bytes(uniqueColors[j])) == keccak256(bytes(color))) {
+                    colorIndex = j;
+                    break;
+                }
+            }
+            
+            if (colorIndex == uniqueColorCount) {
+                uniqueColors[uniqueColorCount] = color;
+                colorPixels[uniqueColorCount] = new uint256[](tokenIds.length);
+                uniqueColorCount++;
+            }
+            
+            colorPixels[colorIndex][colorCounts[colorIndex]] = tokenIds[i];
+            colorCounts[colorIndex]++;
+        }
+        
+        // Generate compressed SVG using rectangles for each color group
+        string memory result = "";
+        for (uint256 i = 0; i < uniqueColorCount; i++) {
+            if (colorCounts[i] > 0) {
+                result = string(abi.encodePacked(
+                    result,
+                    '<g fill="', uniqueColors[i], '">',
+                    _generateRectsForColor(colorPixels[i], colorCounts[i], minX, minY),
+                    '</g>'
+                ));
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+    * @dev Generate optimized rectangles for pixels of the same color
+    */
+    function _generateRectsForColor(uint256[] memory pixels, uint256 count, uint256 minX, uint256 minY) 
+        internal pure returns (string memory) {
+        
+        string memory rects = "";
+        
+        for (uint256 i = 0; i < count; i++) {
+            uint256 x = pixels[i] % WIDTH;
+            uint256 y = pixels[i] / WIDTH;
+            
+            rects = string(abi.encodePacked(
+                rects,
+                '<rect x="', Strings.toString(x - minX), 
+                '" y="', Strings.toString(y - minY), 
+                '" width="1" height="1"/>'
+            ));
+        }
+        
+        return rects;
+    }
+    /**
+    * @dev Advanced compression using rectangle merging algorithm
+    */
+    function _generateUltraCompressedSVG(uint256 compositeId) internal view returns (string memory) {
+        uint256[] memory tokenIds = compositeComponents[compositeId];
+        if (tokenIds.length == 0) return "";
+        
+        (, uint256 minX, uint256 minY, uint256 maxX, uint256 maxY) = this.getCompositionInfo(compositeId);
+        uint256 width = maxX - minX + 1;
+        uint256 height = maxY - minY + 1;
+        
+        // Create a 2D grid representation
+        string[][] memory grid = new string[][](height);
+        for (uint256 i = 0; i < height; i++) {
+            grid[i] = new string[](width);
+        }
+        
+        // Fill the grid
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 x = tokenIds[i] % WIDTH;
+            uint256 y = tokenIds[i] / WIDTH;
+            string memory color = pixelColors[tokenIds[i]];
+            if (bytes(color).length == 0) color = DEFAULT_COLOR;
+            
+            grid[y - minY][x - minX] = color;
+        }
+        
+        // Generate compressed SVG
+        string memory svg = string(abi.encodePacked(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ',
+            Strings.toString(width), ' ', Strings.toString(height), 
+            '" style="image-rendering:pixelated">'
+        ));
+        
+        // Use path elements for maximum compression
+        svg = string(abi.encodePacked(svg, _generateOptimizedPaths(grid, width, height)));
+        
+        return string(abi.encodePacked(svg, '</svg>'));
+    }
+
+    /**
+    * @dev Generate optimized SVG paths from grid
+    */
+    function _generateOptimizedPaths(string[][] memory grid, uint256 width, uint256 height) 
+        internal pure returns (string memory) {
+        
+        string memory paths = "";
+        bool[][] memory processed = new bool[][](height);
+        
+        // Initialize processed array
+        for (uint256 i = 0; i < height; i++) {
+            processed[i] = new bool[](width);
+        }
+        
+        // Process each cell
+        for (uint256 y = 0; y < height; y++) {
+            for (uint256 x = 0; x < width; x++) {
+                if (!processed[y][x] && bytes(grid[y][x]).length > 0) {
+                    // Find the largest rectangle starting from this point
+                    (uint256 rectWidth, uint256 rectHeight) = _findLargestRectangle(
+                        grid, processed, x, y, width, height, grid[y][x]
+                    );
+                    
+                    // Mark rectangle as processed
+                    for (uint256 ry = y; ry < y + rectHeight; ry++) {
+                        for (uint256 rx = x; rx < x + rectWidth; rx++) {
+                            processed[ry][rx] = true;
+                        }
+                    }
+                    
+                    // Add rectangle to SVG
+                    paths = string(abi.encodePacked(
+                        paths,
+                        '<rect x="', Strings.toString(x), 
+                        '" y="', Strings.toString(y),
+                        '" width="', Strings.toString(rectWidth),
+                        '" height="', Strings.toString(rectHeight),
+                        '" fill="', grid[y][x], '"/>'
+                    ));
+                }
+            }
+        }
+        
+        return paths;
+    }
+
+    /**
+    * @dev Find the largest rectangle of the same color starting from a point
+    */
+    function _findLargestRectangle(
+        string[][] memory grid,
+        bool[][] memory processed,
+        uint256 startX,
+        uint256 startY,
+        uint256 gridWidth,
+        uint256 gridHeight,
+        string memory targetColor
+    ) internal pure returns (uint256 width, uint256 height) {
+        
+        // Find maximum width
+        width = 1;
+        for (uint256 x = startX + 1; x < gridWidth; x++) {
+            if (processed[startY][x] || 
+                keccak256(bytes(grid[startY][x])) != keccak256(bytes(targetColor))) {
+                break;
+            }
+            width++;
+        }
+        
+        // Find maximum height with the found width
+        height = 1;
+        for (uint256 y = startY + 1; y < gridHeight; y++) {
+            bool canExtend = true;
+            for (uint256 x = startX; x < startX + width; x++) {
+                if (processed[y][x] || 
+                    keccak256(bytes(grid[y][x])) != keccak256(bytes(targetColor))) {
+                    canExtend = false;
+                    break;
+                }
+            }
+            if (!canExtend) break;
+            height++;
+        }
+        
+        return (width, height);
+    }
+    /**
+    * @dev Generate highly compressed metadata for composite NFTs
+    */
+    function generateOptimizedCompositeTokenURI(uint256 compositeId) internal view returns (string memory) {
+        uint256[] memory tokenIds = compositeComponents[compositeId];
+        require(tokenIds.length > 0, "Not a composite NFT");
+        
+        (, uint256 minX, uint256 minY, uint256 maxX, uint256 maxY) = this.getCompositionInfo(compositeId);
+        
+        uint256 width = maxX - minX + 1;
+        uint256 height = maxY - minY + 1;
+        
+        // Use the most appropriate compression method based on size
+        string memory svg;
+        if (tokenIds.length > 1000) {
+            svg = _generateUltraCompressedSVG(compositeId);
+        } else if (tokenIds.length > 100) {
+            svg = _generateCompressedCompositeImage(compositeId);
+        } else {
+            svg = _generateStandardCompositeImage(compositeId);
+        }
+        
+        // Compress JSON metadata
+        string memory json = Base64.encode(
+            bytes(
+                string(
+                    abi.encodePacked(
+                        '{"name":"Composite (',
+                        Strings.toString(width), 'x', Strings.toString(height),
+                        ')","description":"Composite NFT: ',
+                        Strings.toString(tokenIds.length),
+                        ' pixels","image":"data:image/svg+xml;base64,',
+                        Base64.encode(bytes(svg)),
+                        '","attributes":[{"trait_type":"Width","value":',
+                        Strings.toString(width),
+                        '},{"trait_type":"Height","value":',
+                        Strings.toString(height),
+                        '},{"trait_type":"Pixels","value":',
+                        Strings.toString(tokenIds.length),
+                        '}]}'
+                    )
+                )
+            )
+        );
+        
+        return string(abi.encodePacked("data:application/json;base64,", json));
+    }
+
+    /**
+    * @dev Standard composite image for smaller compositions
+    */
+    function _generateStandardCompositeImage(uint256 compositeId) internal view returns (string memory) {
+        uint256[] memory tokenIds = compositeComponents[compositeId];
+        (, uint256 minX, uint256 minY, uint256 maxX, uint256 maxY) = this.getCompositionInfo(compositeId);
+        
+        uint256 width = maxX - minX + 1;
+        uint256 height = maxY - minY + 1;
+        
+        string memory svg = string(abi.encodePacked(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ',
+            Strings.toString(width), ' ', Strings.toString(height),
+            '" style="image-rendering:pixelated">'
+        ));
+        
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 x = tokenIds[i] % WIDTH;
+            uint256 y = tokenIds[i] / WIDTH;
+            string memory color = pixelColors[tokenIds[i]];
+            
+            svg = string(abi.encodePacked(
+                svg,
+                '<rect x="', Strings.toString(x - minX),
+                '" y="', Strings.toString(y - minY),
+                '" width="1" height="1" fill="', color, '"/>'
+            ));
+        }
+        
+        return string(abi.encodePacked(svg, '</svg>'));
+    }
 
     /**
      * @dev Compose multiple pixels into a single composite NFT (filters to owned pixels only)
@@ -999,65 +1303,6 @@ contract PixelNFT is ERC721, Ownable {
     }
     
     /**
-     * @dev Generate metadata for composite NFTs
-     */
-    function generateCompositeTokenURI(uint256 compositeId) internal view returns (string memory) {
-        uint256[] memory tokenIds = compositeComponents[compositeId];
-        require(tokenIds.length > 0, "Not a composite NFT");
-        
-        (, uint256 minX, uint256 minY, uint256 maxX, uint256 maxY) = this.getCompositionInfo(compositeId);
-        
-        uint256 width = maxX - minX + 1;
-        uint256 height = maxY - minY + 1;
-        
-        string memory svg = string(abi.encodePacked(
-            '<svg xmlns="http://www.w3.org/2000/svg" ',
-            'viewBox="0 0 ', Strings.toString(width * 10), ' ', Strings.toString(height * 10), '" ',
-            'preserveAspectRatio="xMidYMid meet" style="image-rendering: pixelated;">'
-        ));
-        
-        // Add each pixel in the composition
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            uint256 x = tokenIds[i] % WIDTH;
-            uint256 y = tokenIds[i] / WIDTH;
-            string memory color = pixelColors[tokenIds[i]];
-            
-            svg = string(abi.encodePacked(
-                svg,
-                '<rect x="', Strings.toString((x - minX) * 10), 
-                '" y="', Strings.toString((y - minY) * 10), 
-                '" width="10" height="10" fill="', color, '"/>'
-            ));
-        }
-        
-        svg = string(abi.encodePacked(svg, '</svg>'));
-        
-        string memory json = Base64.encode(
-            bytes(
-                string(
-                    abi.encodePacked(
-                        '{',
-                            '"name": "Composite Pixel Art (', Strings.toString(width), 'x', Strings.toString(height), ')",',
-                            '"description": "A composite NFT made from ', Strings.toString(tokenIds.length), ' individual pixels.",',
-                            '"image": "data:image/svg+xml;base64,', Base64.encode(bytes(svg)), '",',
-                            '"attributes": [',
-                                '{"trait_type": "Width", "value": ', Strings.toString(width), '},',
-                                '{"trait_type": "Height", "value": ', Strings.toString(height), '},',
-                                '{"trait_type": "Pixel Count", "value": ', Strings.toString(tokenIds.length), '},',
-                                '{"trait_type": "Start X", "value": ', Strings.toString(minX), '},',
-                                '{"trait_type": "Start Y", "value": ', Strings.toString(minY), '}',
-                            ']',
-                        '}'
-                    )
-                )
-            )
-        );
-        
-        return string(abi.encodePacked("data:application/json;base64,", json));
-    }
-    // Add this function to your contract (around line 800, after the other view functions)
-
-    /**
     * @dev Get SVG images for a batch of token IDs (gas efficient)
     * @param tokenIds Array of token IDs to get images for
     * @return images Array of base64 encoded SVG images
@@ -1152,17 +1397,17 @@ contract PixelNFT is ERC721, Ownable {
     }
 
     /**
-     * @dev Override tokenURI to handle composite NFTs
-     */
+    * @dev Override tokenURI with optimized compression
+    */
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(_exists(tokenId), "Nonexistent token");
         
         // Check if it's a composite NFT
         if (tokenId >= 100000 && compositeComponents[tokenId].length > 0) {
-            return generateCompositeTokenURI(tokenId);
+            return generateOptimizedCompositeTokenURI(tokenId);
         }
         
-        // Regular pixel NFT
+        // Regular pixel NFT - keep existing implementation
         string memory color = pixelColors[tokenId];
         if (bytes(color).length == 0) {
             color = DEFAULT_COLOR;
@@ -1171,28 +1416,24 @@ contract PixelNFT is ERC721, Ownable {
         string memory x = Strings.toString(tokenId % WIDTH);
         string memory y = Strings.toString(tokenId / WIDTH);
 
+        // Compressed single pixel SVG
         string memory svg = string(abi.encodePacked(
-            '<svg xmlns="http://www.w3.org/2000/svg" ',
-            'viewBox="0 0 100 100" ',
-            'preserveAspectRatio="xMidYMid meet">',
-            '<rect x="0" y="0" width="100" height="100" fill="', color, '" />',
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1">',
+            '<rect width="1" height="1" fill="', color, '"/>',
             '</svg>'
         ));
 
+        // Compressed JSON
         string memory json = Base64.encode(
             bytes(
                 string(
                     abi.encodePacked(
-                        '{',
-                            '"name": "Pixel (', x, ',', y, ')",',
-                            '"description": "A pixel on the onchain canvas.",',
-                            '"image": "data:image/svg+xml;base64,', Base64.encode(bytes(svg)), '",',
-                            '"attributes": [',
-                                '{"trait_type": "X", "value": ', x, '},',  // Missing!
-                                '{"trait_type": "Y", "value": ', y, '},',
-                                '{"trait_type": "Color", "value": "', color, '"}',
-                            ']'
-                        '}'
+                        '{"name":"Pixel (', x, ',', y, 
+                        ')","description":"Onchain pixel","image":"data:image/svg+xml;base64,',
+                        Base64.encode(bytes(svg)),
+                        '","attributes":[{"trait_type":"X","value":', x,
+                        '},{"trait_type":"Y","value":', y,
+                        '},{"trait_type":"Color","value":"', color, '"}]}'
                     )
                 )
             )
