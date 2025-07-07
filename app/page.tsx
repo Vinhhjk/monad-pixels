@@ -1824,7 +1824,7 @@ export default function Home() {
         addNotification(
           "info",
           "Update Started",
-          `Updating pixel at (${x}, ${y}) with fee ${feeInEth} ETH...`
+          `Updating pixel at (${x}, ${y}) with fee ${feeInEth} MON...`
         );
       } else {
         addNotification(
@@ -2307,7 +2307,7 @@ export default function Home() {
         addNotification(
           "info",
           "Batch Update Started",
-          `Updating ${pixelArray.length} pixels (${authorizedCount} free, ${unauthorizedCount} paid) with total fee ${feeInEth} ETH...`
+          `Updating ${pixelArray.length} pixels (${authorizedCount} free, ${unauthorizedCount} paid) with total fee ${feeInEth} MON...`
         );
       } else {
         addNotification(

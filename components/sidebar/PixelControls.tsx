@@ -216,7 +216,7 @@ export default function PixelControls({
                 <div className="text-center p-3 bg-orange-900 bg-opacity-50 border border-orange-600 rounded-lg">
                   <p className="text-orange-400 text-sm">💰 Total Fee Required</p>
                   <p className="text-orange-300 text-xs mt-1">
-                    {(Number(batchFeeInfo.totalFee) / 1e18).toFixed(3)} ETH
+                    {(Number(batchFeeInfo.totalFee) / 1e18).toFixed(3)} MON
                   </p>
                   <p className="text-orange-300 text-xs">
                     For {batchFeeInfo.unauthorizedCount} unauthorized pixels
@@ -372,7 +372,7 @@ export default function PixelControls({
                 🔒 Total Fee Required
               </p>
               <p className="text-orange-300 text-xs mt-1">
-                {(Number(batchFeeInfo.totalFee) / 1e18).toFixed(3)} ETH
+                {(Number(batchFeeInfo.totalFee) / 1e18).toFixed(3)} MON
               </p>
               <p className="text-orange-300 text-xs">
                 For {batchFeeInfo.unauthorizedCount} unauthorized pixels
@@ -610,7 +610,7 @@ export default function PixelControls({
                         {hasExemption ? (
                           <div className="space-y-2">
                             <div className="text-center p-3 bg-green-900 bg-opacity-50 border border-green-600 rounded-lg">
-                              <p className="text-green-400 text-sm">✨ NFT Holder - Free Updates!</p>
+                              <p className="text-green-400 text-sm">✨ Special Frens - Free Updates!</p>
                             </div>
                             <button
                               onClick={() => updatePixel(selectedPixel[0], selectedPixel[1])}
@@ -635,7 +635,7 @@ export default function PixelControls({
                             <div className="text-center p-3 bg-orange-900 bg-opacity-50 border border-orange-600 rounded-lg">
                               <p className="text-orange-400 text-sm">💰 Fee Required</p>
                               <p className="text-orange-300 text-xs mt-1">
-                                {(Number(feeRequired) / 1e18).toFixed(6)} ETH
+                                {(Number(feeRequired) / 1e18).toFixed(6)} MON
                               </p>
                             </div>
                             <button
