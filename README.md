@@ -7,7 +7,7 @@
 
 ## ✨ What is Monad Pixels?
 
-MonPixels is a revolutionary on-chain pixel art platform where **every single pixel is an NFT**. Create, own, trade, and collaborate on pixel art that lives forever on the blockchain.
+Monad Pixels is a revolutionary on-chain pixel art platform where **every single pixel is an NFT**. Create, own, trade, and collaborate on pixel art that lives forever on the blockchain.
 
 ### 🚀 Key Features
 
